@@ -1,86 +1,104 @@
-# TestFlight Apprise Notifier
+# 🚀 TestFlight Apprise Notifier  
 
-This project monitors TestFlight beta links and sends notifications when a beta becomes available. It uses FastAPI for the server, Apprise for notifications, and aiohttp for asynchronous HTTP requests.
+📡 **Monitors TestFlight beta links and sends notifications when a beta becomes available!**  
+Uses **FastAPI** for the server, **Apprise** for notifications, and **aiohttp** for asynchronous HTTP requests.
 
-## Features
+---
 
-- **TestFlight Monitoring**: Continuously checks TestFlight beta links for availability.
-- **Notifications**: Sends notifications using Apprise when a beta becomes available.
-- **Heartbeat Notifications**: Sends periodic heartbeat messages to indicate the bot is running.
-- **Logging**: Uses Python's `logging` module for better log management.
-- **Graceful Shutdown**: Handles shutdown signals (`SIGINT`, `SIGTERM`) to clean up resources.
-- **Environment Variable Validation**: Ensures required environment variables are set before starting.
+## ✨ Features  
 
-## Setup
+✅ **TestFlight Monitoring** – Automatically checks TestFlight beta links for availability.  
+🔔 **Notifications** – Sends alerts using Apprise when slots open up.  
+❤️ **Heartbeat Notifications** – Sends periodic status updates to ensure the bot is active.  
+📜 **Logging** – Uses Python’s `logging` module for better log management.  
+🛑 **Graceful Shutdown** – Cleans up resources properly on exit.  
+🔧 **Environment Variable Validation** – Ensures required configurations are set before starting.  
 
-### Prerequisites
+---
 
-- Python 3.8 or higher
-- Install dependencies using `pip install -r requirements.txt`
+## 📦 Setup  
 
-### Environment Variables
+### **🔧 Prerequisites**  
 
-Create a `.env` file in the project root with the following variables:
+- 🐍 **Python 3.8+**  
+- 📦 Install dependencies:  
+  ```bash
+  pip install -r requirements.txt
+  ```
 
-- `ID_LIST`: Comma-separated list of TestFlight IDs to monitor.
-- `APPRISE_URL`: Comma-separated list of Apprise notification URLs.
-- `INTERVAL_CHECK`: Interval (in milliseconds) between checks for each TestFlight link.
+### **⚙️ Environment Variables**  
 
-Example `.env` file:
+Create a `.env` file in the project root with these values:  
 
-```env
-ID_LIST=abc123,def456,ghi789
-APPRISE_URL=mailto://user:password@smtp.example.com,discord://webhook_id/webhook_token
-INTERVAL_CHECK=10000
+```ini
+# List of TestFlight IDs to monitor (comma-separated)
+ID_LIST=abc123,def456,ghi789  
+
+# Apprise notification URLs (comma-separated for multiple services)
+APPRISE_URL=mailto://user:password@smtp.example.com,discord://webhook_id/webhook_token  
+
+# Interval in milliseconds between checks
+INTERVAL_CHECK=10000  
 ```
 
-### Running the Application
+---
 
-1. Start the application:
-   ```bash
-   python main.py
-   ```
+## 🚀 Running the Application  
 
-2. Access the FastAPI server at `http://localhost:8089`.
-
-### Utility Functions
-
-The project includes utility functions for better modularity:
-
-- **`utils/notifications.py`**: Handles sending notifications with error handling.
-- **`utils/formatting.py`**: Provides functions for formatting dates and links.
-- **`utils/colors.py`**: Prints messages in green for heartbeat notifications.
-
-### Logging
-
-Logs are displayed in the console with timestamps and log levels. Example:
-
+Start the script using:  
+```bash
+python main.py
 ```
-2023-01-01 12:00:00 - INFO - Notification sent: Heartbeat - 2023-01-01 12:00:00
-2023-01-01 12:00:00 - INFO - Shutdown signal received. Cleaning up...
-```
+The FastAPI server will be accessible at: **[http://localhost:8089](http://localhost:8089)**  
 
-### Graceful Shutdown
+---
 
-The application listens for `SIGINT` and `SIGTERM` signals to clean up resources like the `aiohttp.ClientSession` before exiting.
+## 🛠 Utility Functions  
 
-### Heartbeat Notifications
+🔹 **`utils/notifications.py`** – Handles notifications with error handling.  
+🔹 **`utils/formatting.py`** – Provides functions for formatting dates & links.  
+🔹 **`utils/colors.py`** – Adds color-coded console output for better visibility.  
 
-Heartbeat messages are sent every 6 hours to indicate the bot is running. These messages are displayed in **green** in the console.
+---
 
-### Example Output
+## 📜 Logging  
+
+The application logs messages in the console with timestamps and log levels:  
 
 ```plaintext
-2023-01-01 12:00:00 - INFO - Notification sent: Heartbeat - 2023-01-01 12:00:00
-Heartbeat - 2023-01-01 12:00:00
-2023-01-01 12:01:00 - INFO - 200 - abc123 - AppName - Available
-Notification sent: https://testflight.apple.com/join/abc123
+2025-04-02 12:00:00 - INFO - Notification sent: Heartbeat - 2025-04-02 12:00:00  
+2025-04-02 12:01:00 - INFO - 200 - abc123 - AppName - Available  
+Notification sent: https://testflight.apple.com/join/abc123  
 ```
 
-## Contributing
+---
 
-Feel free to submit issues or pull requests to improve the project.
+## ❤️ Heartbeat Notifications  
 
-## License
+To confirm the bot is running, it sends a **heartbeat notification every 6 hours.**  
 
-This project is licensed under the MIT License.
+✅ **Example Heartbeat Message:**  
+```plaintext
+2025-04-02 18:00:00 - INFO - Notification sent: Heartbeat - 2025-04-02 18:00:00
+```
+
+---
+
+## 🛑 Graceful Shutdown  
+
+The bot handles **SIGINT** and **SIGTERM** signals to properly close connections before stopping.  
+
+---
+
+## 🤝 Contributing  
+
+Want to help improve this project? Feel free to **submit issues** or **create a pull request**!  
+
+---
+
+## 📜 License  
+
+This project is licensed under the **MIT License**.  
+
+---
+
