@@ -1,62 +1,86 @@
 # TestFlight Apprise Notifier
 
-![TestFlight Notifier](https://img.shields.io/badge/TestFlight-Monitor-blue)
-![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+This project monitors TestFlight beta links and sends notifications when a beta becomes available. It uses FastAPI for the server, Apprise for notifications, and aiohttp for asynchronous HTTP requests.
 
-This script monitors TestFlight links and sends notifications when slots become available. It uses FastAPI for a simple server, Apprise for notifications, and asyncio for efficient network requests.
+## Features
 
-## 🚀 Features
-- ✅ Monitors multiple TestFlight links.
-- 🔔 Sends notifications via Apprise when a slot is available.
-- 🌐 Includes a FastAPI server to keep the script alive.
-- ⏳ Periodic heartbeat notifications.
+- **TestFlight Monitoring**: Continuously checks TestFlight beta links for availability.
+- **Notifications**: Sends notifications using Apprise when a beta becomes available.
+- **Heartbeat Notifications**: Sends periodic heartbeat messages to indicate the bot is running.
+- **Logging**: Uses Python's `logging` module for better log management.
+- **Graceful Shutdown**: Handles shutdown signals (`SIGINT`, `SIGTERM`) to clean up resources.
+- **Environment Variable Validation**: Ensures required environment variables are set before starting.
 
-## 📋 Requirements
-- Python 3.8+
-- Required dependencies:
-  - `aiohttp`
-  - `apprise`
-  - `bs4`
-  - `fastapi`
-  - `python-dotenv`
-  - `uvicorn`
+## Setup
 
-## 📦 Installation
-1. Clone this repository:
-   ```sh
-   git clone https://github.com/your-repo/testflight-apprise.git
-   cd testflight-apprise
-   ```
-2. Install dependencies:
-   ```sh
-   pip install -r requirements.txt
-   ```
+### Prerequisites
 
-## ⚙️ Configuration
-Create a `.env` file and set the following environment variables:
-```ini
-ID_LIST=your_testflight_ids_here (comma-separated)
-INTERVAL_CHECK=10000  # Interval in milliseconds
-APPRISE_URL=your_apprise_url_here
+- Python 3.8 or higher
+- Install dependencies using `pip install -r requirements.txt`
+
+### Environment Variables
+
+Create a `.env` file in the project root with the following variables:
+
+- `ID_LIST`: Comma-separated list of TestFlight IDs to monitor.
+- `APPRISE_URL`: Comma-separated list of Apprise notification URLs.
+- `INTERVAL_CHECK`: Interval (in milliseconds) between checks for each TestFlight link.
+
+Example `.env` file:
+
+```env
+ID_LIST=abc123,def456,ghi789
+APPRISE_URL=mailto://user:password@smtp.example.com,discord://webhook_id/webhook_token
+INTERVAL_CHECK=10000
 ```
 
-## ▶️ Usage
-Run the script using:
-```sh
-python main.py
+### Running the Application
+
+1. Start the application:
+   ```bash
+   python main.py
+   ```
+
+2. Access the FastAPI server at `http://localhost:8089`.
+
+### Utility Functions
+
+The project includes utility functions for better modularity:
+
+- **`utils/notifications.py`**: Handles sending notifications with error handling.
+- **`utils/formatting.py`**: Provides functions for formatting dates and links.
+- **`utils/colors.py`**: Prints messages in green for heartbeat notifications.
+
+### Logging
+
+Logs are displayed in the console with timestamps and log levels. Example:
+
+```
+2023-01-01 12:00:00 - INFO - Notification sent: Heartbeat - 2023-01-01 12:00:00
+2023-01-01 12:00:00 - INFO - Shutdown signal received. Cleaning up...
 ```
 
-## 🌍 API Endpoint
-The script includes a simple FastAPI server:
-- **`GET /`** - Returns `{ "status": "Bot is alive" }` to confirm the script is running.
+### Graceful Shutdown
 
-## 📦 Deployment
-You can deploy this script using Docker, systemd, or a cloud provider for continuous execution.
+The application listens for `SIGINT` and `SIGTERM` signals to clean up resources like the `aiohttp.ClientSession` before exiting.
 
-## 📝 License
+### Heartbeat Notifications
+
+Heartbeat messages are sent every 6 hours to indicate the bot is running. These messages are displayed in **green** in the console.
+
+### Example Output
+
+```plaintext
+2023-01-01 12:00:00 - INFO - Notification sent: Heartbeat - 2023-01-01 12:00:00
+Heartbeat - 2023-01-01 12:00:00
+2023-01-01 12:01:00 - INFO - 200 - abc123 - AppName - Available
+Notification sent: https://testflight.apple.com/join/abc123
+```
+
+## Contributing
+
+Feel free to submit issues or pull requests to improve the project.
+
+## License
+
 This project is licensed under the MIT License.
-
----
-💡 *Feel free to contribute, open issues, or submit pull requests!* 🚀
-

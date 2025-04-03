@@ -5,10 +5,15 @@ import aiohttp
 import uvicorn
 import apprise
 import threading
+import logging
+import signal
 from fastapi import FastAPI
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
+from utils.notifications import send_notification
+from utils.formatting import format_datetime, format_link
+from utils.colors import print_cyan, print_green
 
 # Load environment variables
 load_dotenv()
@@ -22,11 +27,32 @@ SLEEP_TIME = int(os.getenv('INTERVAL_CHECK', 10000))  # in ms
 TITLE_REGEX = re.compile(r'Join the (.+) beta - TestFlight - Apple')
 APPRISE_URLS = os.getenv('APPRISE_URL', '').split(',')
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Validate environment variables
+if not ID_LIST or not any(ID_LIST):
+    logging.error("Environment variable 'ID_LIST' is not set or empty.")
+    raise ValueError("Environment variable 'ID_LIST' is required.")
+if not APPRISE_URLS or not any(APPRISE_URLS):
+    logging.error("Environment variable 'APPRISE_URL' is not set or empty.")
+    raise ValueError("Environment variable 'APPRISE_URL' is required.")
+
 # Initialize Apprise notifier
 apobj = apprise.Apprise()
 for url in APPRISE_URLS:
     if url:
         apobj.add(url)
+
+# Graceful shutdown
+shutdown_event = asyncio.Event()
+
+def handle_shutdown_signal():
+    logging.info("Shutdown signal received. Cleaning up...")
+    shutdown_event.set()
+
+signal.signal(signal.SIGINT, lambda s, f: handle_shutdown_signal())
+signal.signal(signal.SIGTERM, lambda s, f: handle_shutdown_signal())
 
 # FastAPI server
 app = FastAPI()
@@ -35,21 +61,13 @@ app = FastAPI()
 async def home():
     return {"status": "Bot is alive"}
 
-def send_notification(message: str):
-    """Send notification using Apprise with error handling."""
-    try:
-        apobj.notify(body=message, title="TestFlight Alert")
-        print(f"Notification sent: {message}")
-    except Exception as e:
-        print(f"Error sending notification: {e}")
-
 async def fetch_testflight_status(session, tf_id):
     """Fetch and check TestFlight status."""
-    url = f"{TESTFLIGHT_URL}{tf_id}"
+    url = format_link(TESTFLIGHT_URL, tf_id)
     try:
         async with session.get(url, headers={'Accept-Language': 'en-us'}) as response:
             if response.status != 200:
-                print(f"{response.status} - {tf_id} - Not Found.")
+                logging.warning(f"{response.status} - {tf_id} - Not Found.")
                 return
             
             text = await response.text()
@@ -58,17 +76,18 @@ async def fetch_testflight_status(session, tf_id):
             status_text = status_text.text.strip() if status_text else ''
 
             if status_text in [NOT_OPEN_TEXT, FULL_TEXT]:
-                print(f"{response.status} - {tf_id} - {status_text}")
+                logging.info(f"{response.status} - {tf_id} - {status_text}")
                 return
             
             title_tag = soup.find('title')
             title = title_tag.text if title_tag else 'Unknown'
             title_match = TITLE_REGEX.search(title)
-            tf_link = url
-            send_notification(tf_link)
-            print(f"{response.status} - {tf_id} - {title_match.group(1) if title_match else 'Unknown'} - {status_text}")
+            send_notification(url, apobj)
+            logging.info(f"{response.status} - {tf_id} - {title_match.group(1) if title_match else 'Unknown'} - {status_text}")
+    except aiohttp.ClientError as e:
+        logging.error(f"Network error fetching {tf_id}: {e}")
     except Exception as e:
-        print(f"Error fetching {tf_id}: {e}")
+        logging.error(f"Error fetching {tf_id}: {e}")
 
 async def watch():
     """Check all TestFlight links."""
@@ -79,14 +98,15 @@ async def watch():
 async def heartbeat():
     """Send periodic heartbeat notifications."""
     while True:
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        send_notification(f"Heartbeat - {current_time}")
-        print(f"Heartbeat - {current_time}")
+        current_time = format_datetime(datetime.now())
+        message = f"Heartbeat - {current_time}"
+        send_notification(message, apobj)
+        print_green(message)
         await asyncio.sleep(6 * 60 * 60)  # Every 6 hours
 
 async def start_watching():
     """Continuously check TestFlight links."""
-    while True:
+    while not shutdown_event.is_set():
         await watch()
         await asyncio.sleep(SLEEP_TIME / 1000)  # Convert ms to seconds
 
@@ -101,7 +121,7 @@ def main():
 
 async def async_main():
     """Run async tasks in the main event loop."""
-    await asyncio.gather(start_watching(), heartbeat())
+    await asyncio.gather(start_watching(), heartbeat(), shutdown_event.wait())
 
 if __name__ == "__main__":
     main()
