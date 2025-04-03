@@ -7,6 +7,7 @@ import apprise
 import threading
 import logging
 import signal
+import random
 from fastapi import FastAPI
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -111,8 +112,20 @@ async def start_watching():
         await asyncio.sleep(SLEEP_TIME / 1000)  # Convert ms to seconds
 
 def start_fastapi():
-    """Start FastAPI server."""
-    uvicorn.run(app, host="0.0.0.0", port=8089)
+    """Start FastAPI server with a randomized port and optional IP binding."""
+    default_host = "0.0.0.0"
+    default_port = random.randint(8000, 9000)  # Randomize port between 8000 and 9000
+
+    # Allow user to specify host and port via input
+    host = input(f"Enter the host IP to bind (default: {default_host}): ").strip() or default_host
+    try:
+        port = int(input(f"Enter the port to bind (default: {default_port}): ").strip() or default_port)
+    except ValueError:
+        logging.warning(f"Invalid port entered. Using default port: {default_port}")
+        port = default_port
+
+    logging.info(f"Starting FastAPI server on {host}:{port}")
+    uvicorn.run(app, host=host, port=port)
 
 def main():
     """Main function to start all tasks."""
