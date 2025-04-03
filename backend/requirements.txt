@@ -1,6 +1,5 @@
+fastapi
+uvicorn
 aiohttp
 apprise
-beautifulsoup4
-fastapi
-python-dotenv
-uvicorn
+websockets
