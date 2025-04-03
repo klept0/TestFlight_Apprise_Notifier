@@ -102,3 +102,18 @@ This project is licensed under the **MIT License**.
 
 ---
 
+## 📦 Releases
+
+To create a new release, follow these steps:
+
+1. Update the version number in `main.py`.
+2. Update the `CHANGELOG.md` file with the changes for the new release.
+3. Commit the changes and push to the `main` branch.
+4. Create a new tag for the release:
+   ```bash
+   git tag -a vX.X.X -m "Release vX.X.X"
+   git push origin vX.X.X
+   ```
+5. The GitHub Actions workflow will automatically create a new release and upload the assets.
+
+For more details, see the [CHANGELOG.md](./CHANGELOG.md) file.

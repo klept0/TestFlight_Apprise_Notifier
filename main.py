@@ -16,6 +16,9 @@ from utils.notifications import send_notification
 from utils.formatting import format_datetime, format_link
 from utils.colors import print_cyan, print_green
 
+# Version
+__version__ = "1.0.0"
+
 # Load environment variables
 load_dotenv()
 
@@ -29,7 +32,7 @@ TITLE_REGEX = re.compile(r'Join the (.+) beta - TestFlight - Apple')
 APPRISE_URLS = os.getenv('APPRISE_URL', '').split(',')
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s [v%s]" % __version__)
 
 # Validate environment variables
 if not ID_LIST or not any(ID_LIST):
