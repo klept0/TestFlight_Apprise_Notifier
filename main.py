@@ -8,7 +8,9 @@ import threading
 import logging
 import signal
 import random
+from collections import deque
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
@@ -22,7 +24,7 @@ from utils.formatting import (
 from utils.colors import print_green
 
 # Version
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 
 # Load environment variables
 load_dotenv()
@@ -41,27 +43,26 @@ HEARTBEAT_INTERVAL = 6 * 60 * 60  # 6 hours in seconds
 format_str = f"%(asctime)s - %(levelname)s - %(message)s [v{__version__}]"
 logging.basicConfig(level=logging.INFO, format=format_str)
 
+# Web logging handler to capture logs for web interface
+log_entries = deque(maxlen=100)  # Keep last 100 log entries
+app_start_time = datetime.now()
+
+class WebLogHandler(logging.Handler):
+    def emit(self, record):
+        log_entry = {
+            'timestamp': datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S'),
+            'level': record.levelname,
+            'message': record.getMessage()
+        }
+        log_entries.append(log_entry)
+
+# Add the web log handler to the root logger
+web_handler = WebLogHandler()
+logging.getLogger().addHandler(web_handler)
+
 # Validate environment variables
 ID_LIST = [tf_id.strip() for tf_id in id_list_raw if tf_id.strip()]
 APPRISE_URLS = [url.strip() for url in apprise_urls_raw if url.strip()]
-
-# Constants
-TESTFLIGHT_URL = "https://testflight.apple.com/join/"
-FULL_TEXT = "This beta is full."
-NOT_OPEN_TEXT = "This beta isn't accepting any new testers right now."
-ID_LIST = os.getenv("ID_LIST", "").split(",")
-SLEEP_TIME = int(os.getenv("INTERVAL_CHECK", 10000))  # in ms
-TITLE_REGEX = re.compile(r"Join the (.+) beta - TestFlight - Apple")
-APPRISE_URLS = os.getenv("APPRISE_URL", "").split(",")
-HEARTBEAT_INTERVAL = 6 * 60 * 60  # 6 hours in seconds
-
-# Configure logging
-format_str = f"%(asctime)s - %(levelname)s - %(message)s [v{__version__}]"
-logging.basicConfig(level=logging.INFO, format=format_str)
-
-# Validate environment variables
-ID_LIST = [tf_id.strip() for tf_id in ID_LIST if tf_id.strip()]
-APPRISE_URLS = [url.strip() for url in APPRISE_URLS if url.strip()]
 
 if not ID_LIST:
     logging.error(
@@ -108,9 +109,179 @@ if os.name != "nt":
 app = FastAPI()
 
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def home():
-    return {"status": "Bot is alive"}
+    uptime = datetime.now() - app_start_time
+    uptime_str = str(uptime).split('.')[0]  # Remove microseconds
+    
+    # Get recent logs
+    recent_logs = list(log_entries)[-20:]  # Show last 20 entries
+    
+    # Build log HTML
+    log_html = ""
+    for entry in reversed(recent_logs):  # Show newest first
+        level_color = {
+            'INFO': '#28a745',
+            'WARNING': '#ffc107', 
+            'ERROR': '#dc3545',
+            'DEBUG': '#6c757d'
+        }.get(entry['level'], '#000000')
+        
+        log_html += f"""
+        <div style="margin: 5px 0; padding: 5px; border-left: 3px solid {level_color}; background-color: #f8f9fa;">
+            <span style="color: #6c757d; font-size: 0.9em;">{entry['timestamp']}</span>
+            <span style="color: {level_color}; font-weight: bold; margin-left: 10px;">[{entry['level']}]</span>
+            <span style="margin-left: 10px;">{entry['message']}</span>
+        </div>
+        """
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>TestFlight Apprise Notifier - Status</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="30">
+        <style>
+            body {{ 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                margin: 20px; 
+                background-color: #f5f5f5;
+            }}
+            .container {{ 
+                max-width: 1200px; 
+                margin: 0 auto; 
+                background-color: white; 
+                padding: 20px; 
+                border-radius: 8px; 
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .header {{ 
+                text-align: center; 
+                color: #333; 
+                border-bottom: 2px solid #007bff; 
+                padding-bottom: 10px; 
+                margin-bottom: 20px;
+            }}
+            .status-grid {{ 
+                display: grid; 
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
+                gap: 20px; 
+                margin-bottom: 30px;
+            }}
+            .status-card {{ 
+                background-color: #f8f9fa; 
+                padding: 15px; 
+                border-radius: 6px; 
+                border-left: 4px solid #28a745;
+            }}
+            .status-card h3 {{ 
+                margin: 0 0 10px 0; 
+                color: #333; 
+                font-size: 1.1em;
+            }}
+            .status-card p {{ 
+                margin: 5px 0; 
+                color: #666;
+            }}
+            .logs-section {{ 
+                margin-top: 30px;
+            }}
+            .logs-header {{ 
+                background-color: #343a40; 
+                color: white; 
+                padding: 10px 15px; 
+                margin: 0; 
+                border-radius: 6px 6px 0 0;
+            }}
+            .logs-container {{ 
+                max-height: 400px; 
+                overflow-y: auto; 
+                border: 1px solid #dee2e6; 
+                border-top: none; 
+                border-radius: 0 0 6px 6px; 
+                padding: 10px;
+                background-color: #ffffff;
+            }}
+            .refresh-info {{ 
+                text-align: center; 
+                color: #6c757d; 
+                font-size: 0.9em; 
+                margin-top: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1 class="header">🚀 TestFlight Apprise Notifier</h1>
+            
+            <div class="status-grid">
+                <div class="status-card">
+                    <h3>🟢 Bot Status</h3>
+                    <p><strong>Status:</strong> Running</p>
+                    <p><strong>Version:</strong> v{__version__}</p>
+                    <p><strong>Uptime:</strong> {uptime_str}</p>
+                </div>
+                
+                <div class="status-card">
+                    <h3>📱 Monitoring</h3>
+                    <p><strong>TestFlight IDs:</strong> {len(ID_LIST)}</p>
+                    <p><strong>Check Interval:</strong> {SLEEP_TIME/1000:.1f}s</p>
+                    <p><strong>Notification URLs:</strong> {len(APPRISE_URLS)}</p>
+                </div>
+                
+                <div class="status-card">
+                    <h3>💓 Heartbeat</h3>
+                    <p><strong>Interval:</strong> {HEARTBEAT_INTERVAL//3600}h</p>
+                    <p><strong>Last Check:</strong> {format_datetime(datetime.now())}</p>
+                </div>
+            </div>
+            
+            <div class="logs-section">
+                <h3 class="logs-header">📜 Recent Activity (Last 20 entries)</h3>
+                <div class="logs-container">
+                    {log_html if log_html else '<div style="text-align: center; color: #6c757d; padding: 20px;">No log entries yet...</div>'}
+                </div>
+            </div>
+            
+            <div class="refresh-info">
+                🔄 Page auto-refreshes every 30 seconds | Last updated: {format_datetime(datetime.now())}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
+
+
+@app.get("/api/status")
+async def api_status():
+    """API endpoint for status information in JSON format"""
+    uptime = datetime.now() - app_start_time
+    return {
+        "status": "running",
+        "version": __version__,
+        "uptime_seconds": int(uptime.total_seconds()),
+        "uptime_human": str(uptime).split('.')[0],
+        "monitored_ids": len(ID_LIST),
+        "check_interval_ms": SLEEP_TIME,
+        "notification_urls": len(APPRISE_URLS),
+        "heartbeat_interval_hours": HEARTBEAT_INTERVAL // 3600,
+        "log_entries_count": len(log_entries),
+        "last_updated": format_datetime(datetime.now())
+    }
+
+
+@app.get("/api/logs")
+async def api_logs(limit: int = 50):
+    """API endpoint for recent logs in JSON format"""
+    recent_logs = list(log_entries)[-limit:]
+    return {
+        "logs": list(reversed(recent_logs)),
+        "total_entries": len(log_entries),
+        "limit": limit
+    }
 
 
 async def fetch_testflight_status(session, tf_id):
