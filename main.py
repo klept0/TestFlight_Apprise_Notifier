@@ -8,8 +8,9 @@ import threading
 import logging
 import signal
 import random
+import itertools
 from collections import deque
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -24,7 +25,7 @@ from utils.formatting import (
 from utils.colors import print_green
 
 # Version
-__version__ = "1.0.4"
+__version__ = "1.0.4a"
 
 # Load environment variables
 load_dotenv()
@@ -44,17 +45,35 @@ format_str = f"%(asctime)s - %(levelname)s - %(message)s [v{__version__}]"
 logging.basicConfig(level=logging.INFO, format=format_str)
 
 # Web logging handler to capture logs for web interface
-log_entries = deque(maxlen=100)  # Keep last 100 log entries
+log_entries: deque = deque(maxlen=100)  # Keep last 100 log entries
+log_entries_lock = threading.Lock()  # Thread safety for log access
 app_start_time = datetime.now()
+
 
 class WebLogHandler(logging.Handler):
     def emit(self, record):
         log_entry = {
-            'timestamp': datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S'),
+            'timestamp': datetime.fromtimestamp(record.created).strftime(
+                '%Y-%m-%d %H:%M:%S'
+            ),
             'level': record.levelname,
             'message': record.getMessage()
         }
-        log_entries.append(log_entry)
+        with log_entries_lock:
+            log_entries.append(log_entry)
+
+
+def get_recent_logs(limit: int = 20) -> list:
+    """Thread-safe function to get recent log entries."""
+    with log_entries_lock:
+        total_entries = len(log_entries)
+        if total_entries == 0:
+            return []
+        
+        # Use efficient slicing for better performance
+        start_idx = max(0, total_entries - limit)
+        return list(itertools.islice(log_entries, start_idx, total_entries))
+
 
 # Add the web log handler to the root logger
 web_handler = WebLogHandler()
@@ -114,8 +133,8 @@ async def home():
     uptime = datetime.now() - app_start_time
     uptime_str = str(uptime).split('.')[0]  # Remove microseconds
     
-    # Get recent logs
-    recent_logs = list(log_entries)[-20:]  # Show last 20 entries
+    # Get recent logs using thread-safe function
+    recent_logs = get_recent_logs(20)  # Show last 20 entries
     
     # Build log HTML
     log_html = ""
@@ -259,6 +278,9 @@ async def home():
 async def api_status():
     """API endpoint for status information in JSON format"""
     uptime = datetime.now() - app_start_time
+    with log_entries_lock:
+        log_count = len(log_entries)
+    
     return {
         "status": "running",
         "version": __version__,
@@ -268,18 +290,32 @@ async def api_status():
         "check_interval_ms": SLEEP_TIME,
         "notification_urls": len(APPRISE_URLS),
         "heartbeat_interval_hours": HEARTBEAT_INTERVAL // 3600,
-        "log_entries_count": len(log_entries),
+        "log_entries_count": log_count,
         "last_updated": format_datetime(datetime.now())
     }
 
 
 @app.get("/api/logs")
 async def api_logs(limit: int = 50):
-    """API endpoint for recent logs in JSON format"""
-    recent_logs = list(log_entries)[-limit:]
+    """API endpoint for recent logs in JSON format with input validation"""
+    # Input validation for limit parameter
+    if limit < 1:
+        raise HTTPException(status_code=400, detail="Limit must be at least 1")
+    if limit > 1000:
+        raise HTTPException(
+            status_code=400, 
+            detail="Limit cannot exceed 1000 for performance reasons"
+        )
+    
+    # Get logs using thread-safe function with efficient slicing
+    recent_logs = get_recent_logs(limit)
+    
+    with log_entries_lock:
+        total_entries = len(log_entries)
+    
     return {
         "logs": list(reversed(recent_logs)),
-        "total_entries": len(log_entries),
+        "total_entries": total_entries,
         "limit": limit
     }
 
