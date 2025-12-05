@@ -213,7 +213,7 @@ async def get_http_session() -> aiohttp.ClientSession:
                     connector=connector,
                     timeout=timeout,
                     headers={
-                        "User-Agent": "TestFlight-Notifier/1.0.7c",
+                        "User-Agent": "TestFlight-Notifier/1.0.8",
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
                         "Accept-Encoding": "gzip, deflate, br",
@@ -224,7 +224,7 @@ async def get_http_session() -> aiohttp.ClientSession:
 
 
 # Version
-__version__ = "1.0.7c"
+__version__ = "1.0.8"
 
 
 def get_multiline_env_value(key: str) -> str:
@@ -448,11 +448,14 @@ def get_uvicorn_log_config():
 ID_LIST = [tf_id.strip() for tf_id in id_list_raw if tf_id.strip()]
 APPRISE_URLS = [url.strip() for url in apprise_urls_raw if url.strip()]
 
+# Allow empty ID_LIST - user can add IDs via web interface
 if not ID_LIST:
-    logging.error(
-        "Environment variable 'ID_LIST' is not set or contains only empty values."
+    logging.warning(
+        "Environment variable 'ID_LIST' is empty. "
+        "No TestFlight IDs will be monitored until added via web interface."
     )
-    raise ValueError("Environment variable 'ID_LIST' is required.")
+
+# Apprise URLs are still required for notifications to work
 if not APPRISE_URLS:
     logging.error(
         "Environment variable 'APPRISE_URL' is not set or contains only empty values."
@@ -1832,6 +1835,42 @@ async def home():
                 </div>
             </div>
             
+            <h2 style="color: var(--text-color); margin: 30px 0 20px 0;">
+                ⚙️ Configuration Editor
+            </h2>
+            
+            <div class="management-grid">
+                <div class="management-card">
+                    <h3 class="collapsible" onclick="toggleCard(this)">Edit .env Configuration</h3>
+                    <div class="collapsible-content">
+                        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
+                            Edit your environment configuration. Changes require a restart to take effect.
+                        </p>
+                        <textarea id="config-editor" 
+                                  style="width: 100%; min-height: 200px; font-family: monospace; font-size: 0.9em; 
+                                         padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); 
+                                         background-color: var(--container-bg); color: var(--text-color); 
+                                         resize: vertical; box-sizing: border-box;"
+                                  placeholder="Loading configuration..."></textarea>
+                        <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button onclick="loadConfig()" 
+                                    style="padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                🔄 Reload
+                            </button>
+                            <button onclick="saveConfig()" 
+                                    style="padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                💾 Save Configuration
+                            </button>
+                            <button onclick="saveAndRestart()" 
+                                    style="padding: 8px 16px; background-color: #fd7e14; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                💾🔄 Save & Restart
+                            </button>
+                        </div>
+                        <div id="config-status" style="margin-top: 10px; min-height: 20px;"></div>
+                    </div>
+                </div>
+            </div>
+            
             <div class="logs-section">
                 <h3 class="logs-header">📜 Recent Activity (Last 20 entries)</h3>
                 <div class="logs-container">
@@ -2167,6 +2206,7 @@ async def home():
                 initializeTheme();
                 refreshIds();
                 refreshUrls();
+                loadConfig();
                 // Initialize collapsible sections - expand by default
                 document.querySelectorAll('.collapsible-content').forEach(content => {{
                     content.classList.add('expanded');
@@ -2242,6 +2282,98 @@ async def home():
                     }}
                 }} catch (error) {{
                     alert('Error restarting application: ' + error.message);
+                }}
+            }}
+            
+            // Config Editor functions
+            async function loadConfig() {{
+                const editor = document.getElementById('config-editor');
+                const statusDiv = document.getElementById('config-status');
+                
+                try {{
+                    statusDiv.innerHTML = '<span style="color: #007bff;">Loading...</span>';
+                    const response = await fetch('/api/config');
+                    const data = await response.json();
+                    
+                    if (response.ok) {{
+                        editor.value = data.content;
+                        statusDiv.innerHTML = '<span style="color: #28a745;">Configuration loaded</span>';
+                    }} else {{
+                        statusDiv.innerHTML = `<span style="color: #dc3545;">${{data.detail || 'Failed to load config'}}</span>`;
+                    }}
+                }} catch (error) {{
+                    statusDiv.innerHTML = `<span style="color: #dc3545;">Error: ${{error.message}}</span>`;
+                }}
+            }}
+            
+            async function saveConfig() {{
+                const editor = document.getElementById('config-editor');
+                const statusDiv = document.getElementById('config-status');
+                const content = editor.value;
+                
+                try {{
+                    statusDiv.innerHTML = '<span style="color: #007bff;">Saving...</span>';
+                    
+                    const formData = new FormData();
+                    formData.append('content', content);
+                    
+                    const response = await fetch('/api/config', {{
+                        method: 'POST',
+                        body: formData
+                    }});
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {{
+                        statusDiv.innerHTML = '<span style="color: #28a745;">✅ Configuration saved! Restart to apply changes.</span>';
+                    }} else {{
+                        statusDiv.innerHTML = `<span style="color: #dc3545;">${{data.detail || 'Failed to save config'}}</span>`;
+                    }}
+                }} catch (error) {{
+                    statusDiv.innerHTML = `<span style="color: #dc3545;">Error: ${{error.message}}</span>`;
+                }}
+            }}
+            
+            async function saveAndRestart() {{
+                const editor = document.getElementById('config-editor');
+                const statusDiv = document.getElementById('config-status');
+                const content = editor.value;
+                
+                if (!confirm('Save configuration and restart the application?')) {{
+                    return;
+                }}
+                
+                try {{
+                    statusDiv.innerHTML = '<span style="color: #007bff;">Saving configuration...</span>';
+                    
+                    const formData = new FormData();
+                    formData.append('content', content);
+                    
+                    const response = await fetch('/api/config', {{
+                        method: 'POST',
+                        body: formData
+                    }});
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {{
+                        statusDiv.innerHTML = '<span style="color: #28a745;">Configuration saved! Restarting...</span>';
+                        
+                        // Trigger restart
+                        await fetch('/api/control/restart', {{ method: 'POST' }});
+                        
+                        document.querySelector('.container').innerHTML = `
+                            <div style="text-align: center; padding: 50px;">
+                                <h2>🔄 Application Restarting</h2>
+                                <p>Configuration saved. The application is restarting...</p>
+                                <p>Please wait a moment and refresh the page.</p>
+                            </div>
+                        `;
+                    }} else {{
+                        statusDiv.innerHTML = `<span style="color: #dc3545;">${{data.detail || 'Failed to save config'}}</span>`;
+                    }}
+                }} catch (error) {{
+                    statusDiv.innerHTML = `<span style="color: #dc3545;">Error: ${{error.message}}</span>`;
                 }}
             }}
         </script>
@@ -2664,6 +2796,583 @@ async def restart_application():
     except Exception as e:
         logging.error(f"Failed to restart application: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to restart: {str(e)}")
+
+
+@app.get("/api/config")
+async def get_config():
+    """Get the current .env file contents."""
+    try:
+        env_path = ".env"
+        if not os.path.exists(env_path):
+            return {
+                "exists": False,
+                "content": "",
+                "message": ".env file does not exist"
+            }
+        
+        with open(env_path, "r") as f:
+            content = f.read()
+        
+        return {
+            "exists": True,
+            "content": content,
+            "path": os.path.abspath(env_path)
+        }
+    except Exception as e:
+        logging.error(f"Failed to read .env file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read config: {str(e)}")
+
+
+@app.post("/api/config")
+async def save_config(content: str = Form(...)):
+    """Save changes to the .env file."""
+    try:
+        if not isinstance(content, str):
+            raise HTTPException(status_code=400, detail="Content must be a string")
+        
+        env_path = ".env"
+        
+        # Create backup before saving
+        if os.path.exists(env_path):
+            backup_path = f"{env_path}.backup"
+            with open(env_path, "r") as f:
+                backup_content = f.read()
+            with open(backup_path, "w") as f:
+                f.write(backup_content)
+            logging.info(f"Created backup at {backup_path}")
+        
+        # Write new content
+        with open(env_path, "w") as f:
+            f.write(content)
+        
+        logging.info("Configuration file updated via web interface")
+        
+        return {
+            "success": True,
+            "message": "Configuration saved. Restart to apply changes.",
+            "backup_created": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Failed to save .env file: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to save config: {str(e)}"
+        )
+
+
+@app.post("/api/config/restore")
+async def restore_config():
+    """Restore .env file from backup."""
+    try:
+        env_path = ".env"
+        backup_path = f"{env_path}.backup"
+        
+        if not os.path.exists(backup_path):
+            raise HTTPException(status_code=404, detail="No backup file found")
+        
+        with open(backup_path, "r") as f:
+            backup_content = f.read()
+        
+        with open(env_path, "w") as f:
+            f.write(backup_content)
+        
+        logging.info("Configuration restored from backup via web interface")
+        
+        return {
+            "success": True,
+            "message": "Configuration restored from backup. Restart the application for changes to take effect.",
+            "content": backup_content
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Failed to restore .env file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to restore config: {str(e)}")
+
+
+@app.get("/config", response_class=HTMLResponse)
+async def config_editor_page():
+    """Serve the configuration editor page."""
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>TestFlight Apprise Notifier - Config Editor</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            :root {
+                --bg-color: #f5f5f5;
+                --container-bg: white;
+                --card-bg: #f8f9fa;
+                --text-color: #333;
+                --text-secondary: #666;
+                --border-color: #dee2e6;
+                --header-border: #007bff;
+                --success-color: #28a745;
+                --danger-color: #dc3545;
+                --warning-color: #ffc107;
+                --info-color: #17a2b8;
+                --shadow: rgba(0,0,0,0.1);
+                --editor-bg: #1e1e1e;
+                --editor-text: #d4d4d4;
+                --editor-line-numbers: #858585;
+                --editor-highlight: #264f78;
+            }
+            
+            body.dark-mode {
+                --bg-color: #1a1a1a;
+                --container-bg: #2d2d2d;
+                --card-bg: #3a3a3a;
+                --text-color: #e0e0e0;
+                --text-secondary: #b0b0b0;
+                --border-color: #404040;
+                --header-border: #4a9eff;
+                --editor-bg: #1e1e1e;
+                --editor-text: #d4d4d4;
+            }
+            
+            body { 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                margin: 0;
+                padding: 10px;
+                background-color: var(--bg-color);
+                color: var(--text-color);
+                transition: background-color 0.3s, color 0.3s;
+            }
+            
+            .container { 
+                max-width: 1200px; 
+                margin: 0 auto; 
+                background-color: var(--container-bg); 
+                padding: 20px; 
+                border-radius: 10px; 
+                box-shadow: 0 2px 10px var(--shadow);
+            }
+            
+            .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+                padding-bottom: 15px;
+                border-bottom: 3px solid var(--header-border);
+            }
+            
+            .header h1 {
+                margin: 0;
+                font-size: 1.5em;
+            }
+            
+            .header-buttons {
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            
+            .back-btn {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+                background-color: var(--info-color);
+                color: white;
+                text-decoration: none;
+            }
+            
+            .back-btn:hover {
+                opacity: 0.9;
+            }
+            
+            .theme-toggle {
+                padding: 8px 12px;
+                border: 1px solid var(--border-color);
+                border-radius: 5px;
+                background: var(--card-bg);
+                cursor: pointer;
+                font-size: 18px;
+                transition: all 0.3s;
+            }
+            
+            .editor-container {
+                margin-bottom: 20px;
+            }
+            
+            .editor-toolbar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+                padding: 10px;
+                background-color: var(--card-bg);
+                border-radius: 5px 5px 0 0;
+            }
+            
+            .editor-info {
+                font-size: 0.9em;
+                color: var(--text-secondary);
+            }
+            
+            .editor-actions {
+                display: flex;
+                gap: 10px;
+            }
+            
+            .btn {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+                transition: all 0.2s;
+            }
+            
+            .btn-primary {
+                background-color: var(--success-color);
+                color: white;
+            }
+            
+            .btn-primary:hover {
+                opacity: 0.9;
+            }
+            
+            .btn-secondary {
+                background-color: var(--card-bg);
+                color: var(--text-color);
+                border: 1px solid var(--border-color);
+            }
+            
+            .btn-secondary:hover {
+                background-color: var(--border-color);
+            }
+            
+            .btn-danger {
+                background-color: var(--danger-color);
+                color: white;
+            }
+            
+            .btn-danger:hover {
+                opacity: 0.9;
+            }
+            
+            .btn-warning {
+                background-color: var(--warning-color);
+                color: #333;
+            }
+            
+            .btn-warning:hover {
+                opacity: 0.9;
+            }
+            
+            .btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            
+            .editor {
+                width: 100%;
+                min-height: 500px;
+                padding: 15px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 14px;
+                line-height: 1.5;
+                background-color: var(--editor-bg);
+                color: var(--editor-text);
+                border: 1px solid var(--border-color);
+                border-radius: 0 0 5px 5px;
+                resize: vertical;
+                box-sizing: border-box;
+                tab-size: 2;
+            }
+            
+            .editor:focus {
+                outline: 2px solid var(--header-border);
+                outline-offset: -2px;
+            }
+            
+            .status-message {
+                padding: 15px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                display: none;
+            }
+            
+            .status-message.success {
+                background-color: rgba(40, 167, 69, 0.1);
+                border: 1px solid var(--success-color);
+                color: var(--success-color);
+                display: block;
+            }
+            
+            .status-message.error {
+                background-color: rgba(220, 53, 69, 0.1);
+                border: 1px solid var(--danger-color);
+                color: var(--danger-color);
+                display: block;
+            }
+            
+            .status-message.warning {
+                background-color: rgba(255, 193, 7, 0.1);
+                border: 1px solid var(--warning-color);
+                color: #856404;
+                display: block;
+            }
+            
+            .help-section {
+                margin-top: 20px;
+                padding: 15px;
+                background-color: var(--card-bg);
+                border-radius: 5px;
+                border-left: 4px solid var(--info-color);
+            }
+            
+            .help-section h3 {
+                margin-top: 0;
+                color: var(--info-color);
+            }
+            
+            .help-section code {
+                background-color: var(--editor-bg);
+                color: var(--editor-text);
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            }
+            
+            .help-section ul {
+                margin: 10px 0;
+                padding-left: 20px;
+            }
+            
+            .help-section li {
+                margin: 5px 0;
+            }
+            
+            .unsaved-indicator {
+                display: none;
+                color: var(--warning-color);
+                font-weight: bold;
+            }
+            
+            .unsaved-indicator.visible {
+                display: inline;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>⚙️ Configuration Editor</h1>
+                <div class="header-buttons">
+                    <span class="unsaved-indicator" id="unsaved-indicator">● Unsaved changes</span>
+                    <a href="/" class="back-btn">← Back to Dashboard</a>
+                    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
+                </div>
+            </div>
+            
+            <div id="status-message" class="status-message"></div>
+            
+            <div class="editor-container">
+                <div class="editor-toolbar">
+                    <div class="editor-info">
+                        <strong>File:</strong> <span id="file-path">.env</span>
+                    </div>
+                    <div class="editor-actions">
+                        <button class="btn btn-secondary" onclick="reloadConfig()" title="Reload from disk">🔄 Reload</button>
+                        <button class="btn btn-warning" onclick="restoreBackup()" title="Restore from backup">⏪ Restore Backup</button>
+                        <button class="btn btn-primary" onclick="saveConfig()" id="save-btn">💾 Save Changes</button>
+                    </div>
+                </div>
+                <textarea class="editor" id="config-editor" spellcheck="false" placeholder="Loading configuration..."></textarea>
+            </div>
+            
+            <div class="help-section">
+                <h3>📖 Configuration Reference</h3>
+                <ul>
+                    <li><code>ID_LIST</code> - Comma-separated TestFlight IDs to monitor (e.g., <code>abc123,xyz789</code>)</li>
+                    <li><code>APPRISE_URL</code> - Apprise notification URL(s), comma-separated for multiple services</li>
+                    <li><code>INTERVAL_CHECK</code> - Check interval in milliseconds (default: <code>10000</code>)</li>
+                    <li><code>HEARTBEAT_INTERVAL</code> - Hours between heartbeat notifications (default: <code>6</code>, set to <code>0</code> to disable)</li>
+                    <li><code>ALWAYS_NOTIFY_OPEN</code> - Notify on every check when OPEN (<code>true</code>/<code>false</code>)</li>
+                    <li><code>FASTAPI_HOST</code> - Web dashboard bind address (default: <code>0.0.0.0</code>)</li>
+                    <li><code>FASTAPI_PORT</code> - Web dashboard port (default: <code>8080</code>)</li>
+                </ul>
+                <p><strong>⚠️ Note:</strong> After saving changes, you must <strong>restart the application</strong> for them to take effect.</p>
+            </div>
+        </div>
+        
+        <script>
+            let originalContent = '';
+            let hasUnsavedChanges = false;
+            
+            // Theme management
+            function initializeTheme() {
+                const savedTheme = localStorage.getItem('theme') || 'light';
+                applyTheme(savedTheme);
+            }
+            
+            function toggleTheme() {
+                const body = document.body;
+                const newTheme = body.classList.contains('dark-mode') ? 'light' : 'dark';
+                localStorage.setItem('theme', newTheme);
+                applyTheme(newTheme);
+            }
+            
+            function applyTheme(theme) {
+                const body = document.body;
+                const toggle = document.getElementById('theme-toggle');
+                
+                if (theme === 'dark') {
+                    body.classList.add('dark-mode');
+                    toggle.textContent = '☀️';
+                } else {
+                    body.classList.remove('dark-mode');
+                    toggle.textContent = '🌙';
+                }
+            }
+            
+            function showStatus(message, type) {
+                const statusEl = document.getElementById('status-message');
+                statusEl.textContent = message;
+                statusEl.className = 'status-message ' + type;
+                
+                if (type === 'success') {
+                    setTimeout(() => {
+                        statusEl.className = 'status-message';
+                    }, 5000);
+                }
+            }
+            
+            function updateUnsavedIndicator() {
+                const editor = document.getElementById('config-editor');
+                const indicator = document.getElementById('unsaved-indicator');
+                hasUnsavedChanges = editor.value !== originalContent;
+                
+                if (hasUnsavedChanges) {
+                    indicator.classList.add('visible');
+                } else {
+                    indicator.classList.remove('visible');
+                }
+            }
+            
+            async function loadConfig() {
+                try {
+                    const response = await fetch('/api/config');
+                    const data = await response.json();
+                    
+                    const editor = document.getElementById('config-editor');
+                    
+                    if (data.exists) {
+                        editor.value = data.content;
+                        originalContent = data.content;
+                        document.getElementById('file-path').textContent = data.path || '.env';
+                    } else {
+                        editor.value = '# .env file not found\n# Create your configuration here\n\nID_LIST=\nAPPRISE_URL=\nINTERVAL_CHECK=10000\nHEARTBEAT_INTERVAL=6\n';
+                        originalContent = editor.value;
+                        showStatus('.env file does not exist. A new one will be created when you save.', 'warning');
+                    }
+                    
+                    updateUnsavedIndicator();
+                } catch (error) {
+                    showStatus('Failed to load configuration: ' + error.message, 'error');
+                }
+            }
+            
+            async function reloadConfig() {
+                if (hasUnsavedChanges) {
+                    if (!confirm('You have unsaved changes. Are you sure you want to reload?')) {
+                        return;
+                    }
+                }
+                await loadConfig();
+                showStatus('Configuration reloaded from disk.', 'success');
+            }
+            
+            async function saveConfig() {
+                const editor = document.getElementById('config-editor');
+                const content = editor.value;
+                
+                try {
+                    const response = await fetch('/api/config', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ content: content })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        originalContent = content;
+                        updateUnsavedIndicator();
+                        showStatus(data.message, 'success');
+                    } else {
+                        showStatus('Failed to save: ' + data.detail, 'error');
+                    }
+                } catch (error) {
+                    showStatus('Failed to save configuration: ' + error.message, 'error');
+                }
+            }
+            
+            async function restoreBackup() {
+                if (!confirm('Are you sure you want to restore the configuration from backup? This will overwrite the current .env file.')) {
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/config/restore', {
+                        method: 'POST'
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        document.getElementById('config-editor').value = data.content;
+                        originalContent = data.content;
+                        updateUnsavedIndicator();
+                        showStatus(data.message, 'success');
+                    } else {
+                        showStatus('Failed to restore: ' + data.detail, 'error');
+                    }
+                } catch (error) {
+                    showStatus('Failed to restore backup: ' + error.message, 'error');
+                }
+            }
+            
+            // Warn before leaving with unsaved changes
+            window.addEventListener('beforeunload', function(e) {
+                if (hasUnsavedChanges) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
+            
+            // Keyboard shortcuts
+            document.addEventListener('keydown', function(e) {
+                // Ctrl+S or Cmd+S to save
+                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                    e.preventDefault();
+                    saveConfig();
+                }
+            });
+            
+            // Initialize
+            document.addEventListener('DOMContentLoaded', function() {
+                initializeTheme();
+                loadConfig();
+                
+                // Track changes in editor
+                document.getElementById('config-editor').addEventListener('input', updateUnsavedIndicator);
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 
 async def fetch_testflight_status(session, tf_id):
