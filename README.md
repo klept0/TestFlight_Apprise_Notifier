@@ -12,6 +12,7 @@ A Python-based monitoring tool that continuously checks Apple TestFlight beta av
 - 🔄 **Status Tracking** – Detects status changes (Open, Full, Closed) and notifies accordingly
 - 💓 **Heartbeat Notifications** – Optional periodic notifications to confirm the service is running
 - 🎨 **Dark Mode UI** – Modern, responsive web dashboard with dark/light theme toggle
+- 📝 **Code Editor** - Basic code editor to live modify your .env files and restart services through web dashboard.
 
 ## Status Detection
 
@@ -222,3 +223,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - [Apprise](https://github.com/caronc/apprise) – The powerful notification library that makes this possible
 - [FastAPI](https://fastapi.tiangolo.com/) – The modern web framework powering the dashboard
+
