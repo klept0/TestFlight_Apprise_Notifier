@@ -213,7 +213,7 @@ async def get_http_session() -> aiohttp.ClientSession:
                     connector=connector,
                     timeout=timeout,
                     headers={
-                        "User-Agent": "TestFlight-Notifier/1.0.8",
+                        "User-Agent": "TestFlight-Notifier/1.0.9",
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
                         "Accept-Encoding": "gzip, deflate, br",
@@ -224,7 +224,7 @@ async def get_http_session() -> aiohttp.ClientSession:
 
 
 # Version
-__version__ = "1.0.8"
+__version__ = "1.0.9"
 
 
 def get_multiline_env_value(key: str) -> str:
@@ -1647,6 +1647,9 @@ async def home():
             .collapsible-content.expanded {{
                 display: block;
             }}
+            .config-card .collapsible-content {{
+                padding-left: 0;
+            }}
             input[type="text"] {{
                 background-color: var(--container-bg);
                 color: var(--text-color);
@@ -1833,41 +1836,40 @@ async def home():
                         </div>
                     </div>
                 </div>
-            </div>
             
             <h2 style="color: var(--text-color); margin: 30px 0 20px 0;">
                 ⚙️ Configuration Editor
             </h2>
             
             <div class="management-grid">
-                <div class="management-card">
-                    <h3 class="collapsible" onclick="toggleCard(this)">Edit .env Configuration</h3>
-                    <div class="collapsible-content">
-                        <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
-                            Edit your environment configuration. Changes require a restart to take effect.
-                        </p>
-                        <textarea id="config-editor" 
-                                  style="width: 100%; min-height: 200px; font-family: monospace; font-size: 0.9em; 
-                                         padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); 
-                                         background-color: var(--container-bg); color: var(--text-color); 
-                                         resize: vertical; box-sizing: border-box;"
-                                  placeholder="Loading configuration..."></textarea>
-                        <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button onclick="loadConfig()" 
-                                    style="padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                                🔄 Reload
-                            </button>
-                            <button onclick="saveConfig()" 
-                                    style="padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                                💾 Save Configuration
-                            </button>
-                            <button onclick="saveAndRestart()" 
-                                    style="padding: 8px 16px; background-color: #fd7e14; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                                💾🔄 Save & Restart
-                            </button>
+                <div class="management-card config-card">
+                        <h3 class="collapsible" onclick="toggleCard(this)">Edit .env Configuration</h3>
+                        <div class="collapsible-content">
+                            <p style="color: var(--text-secondary); font-size: 0.9em; margin-bottom: 10px;">
+                                Edit your environment configuration. Changes require a restart to take effect.
+                            </p>
+                            <textarea id="config-editor" 
+                                      style="width: 100%; min-height: 200px; font-family: monospace; font-size: 0.9em; 
+                                             padding: 10px; border-radius: 4px; border: 1px solid var(--border-color); 
+                                             background-color: var(--container-bg); color: var(--text-color); 
+                                             resize: vertical; box-sizing: border-box;"
+                                      placeholder="Loading configuration..."></textarea>
+                            <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button onclick="loadConfig()" 
+                                        style="padding: 8px 16px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    🔄 Reload
+                                </button>
+                                <button onclick="saveConfig()" 
+                                        style="padding: 8px 16px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    💾 Save Configuration
+                                </button>
+                                <button onclick="saveAndRestart()" 
+                                        style="padding: 8px 16px; background-color: #fd7e14; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    💾🔄 Save & Restart
+                                </button>
+                            </div>
+                            <div id="config-status" style="margin-top: 10px; min-height: 20px;"></div>
                         </div>
-                        <div id="config-status" style="margin-top: 10px; min-height: 20px;"></div>
-                    </div>
                 </div>
             </div>
             
