@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
@@ -1354,6 +1355,26 @@ async def lifespan(app: FastAPI):
         await cleanup_http_session()
 
 
+# --- Request models ------------------------------------------------------
+class TestFlightIdRequest(BaseModel):
+    """Body for single TestFlight ID validate/add requests."""
+
+    id: str = Field(..., description="TestFlight beta ID")
+
+
+class AppriseUrlRequest(BaseModel):
+    """Body for single Apprise URL validate/add requests."""
+
+    url: str = Field(..., description="Apprise notification URL")
+
+
+class BatchIdRequest(BaseModel):
+    """Body for batch add/remove of TestFlight IDs."""
+
+    add: list[str] = Field(default_factory=list, description="IDs to add")
+    remove: list[str] = Field(default_factory=list, description="IDs to remove")
+
+
 # Optional HTTP Basic auth (see WEB_USERNAME / WEB_PASSWORD above).
 _basic_security = HTTPBasic(auto_error=False)
 
@@ -1526,10 +1547,9 @@ async def get_testflight_ids_details():
 
 
 @app.post("/api/testflight-ids/validate")
-async def validate_id(request: Request):
+async def validate_id(payload: TestFlightIdRequest):
     """Validate a TestFlight ID."""
-    data = await request.json()
-    tf_id = data.get("id", "").strip()
+    tf_id = payload.id.strip()
 
     if not tf_id:
         raise HTTPException(status_code=400, detail="TestFlight ID is required")
@@ -1557,10 +1577,9 @@ async def validate_id(request: Request):
 
 
 @app.post("/api/testflight-ids")
-async def add_id(request: Request):
+async def add_id(payload: TestFlightIdRequest):
     """Add a new TestFlight ID."""
-    data = await request.json()
-    tf_id = data.get("id", "").strip()
+    tf_id = payload.id.strip()
 
     if not tf_id:
         raise HTTPException(status_code=400, detail="TestFlight ID is required")
@@ -1589,7 +1608,7 @@ async def remove_id(tf_id: str):
 
 
 @app.post("/api/testflight-ids/batch")
-async def batch_operations(request: Request):
+async def batch_operations(payload: BatchIdRequest):
     """
     Perform batch operations on TestFlight IDs.
 
@@ -1606,9 +1625,8 @@ async def batch_operations(request: Request):
         "testflight_ids": [...]
     }
     """
-    data = await request.json()
-    ids_to_add = data.get("add", [])
-    ids_to_remove = data.get("remove", [])
+    ids_to_add = payload.add
+    ids_to_remove = payload.remove
 
     result = {
         "added": {"successful": [], "failed": []},
@@ -1707,10 +1725,9 @@ async def get_apprise_urls():
 
 
 @app.post("/api/apprise-urls/validate")
-async def validate_url(request: Request):
+async def validate_url(payload: AppriseUrlRequest):
     """Validate an Apprise URL."""
-    data = await request.json()
-    url = data.get("url", "").strip()
+    url = payload.url.strip()
 
     if not url:
         raise HTTPException(status_code=400, detail="Apprise URL is required")
@@ -1724,10 +1741,9 @@ async def validate_url(request: Request):
 
 
 @app.post("/api/apprise-urls")
-async def add_url(request: Request):
+async def add_url(payload: AppriseUrlRequest):
     """Add a new Apprise URL."""
-    data = await request.json()
-    url = data.get("url", "").strip()
+    url = payload.url.strip()
 
     if not url:
         raise HTTPException(status_code=400, detail="Apprise URL is required")
