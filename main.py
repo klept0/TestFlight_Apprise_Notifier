@@ -9,11 +9,13 @@ import logging
 import signal
 import random
 import itertools
+import secrets
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Form, Request
+from fastapi import FastAPI, HTTPException, Form, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from bs4 import BeautifulSoup
@@ -64,6 +66,13 @@ ENABLE_UPDATE_CHECKER = os.getenv("ENABLE_UPDATE_CHECKER", "true").lower() in (
 # UI default theme: "dark" or "light" (users can override per-browser via the toggle)
 _raw_theme = os.getenv("UI_THEME", "dark").lower().strip()
 UI_THEME = "dark" if _raw_theme not in ("light", "dark") else _raw_theme
+
+# Optional HTTP Basic auth for the web dashboard/API. Enabled only when BOTH
+# WEB_USERNAME and WEB_PASSWORD are set. When unset, the app relies on binding
+# to localhost (the default host) for protection. Set these whenever the
+# dashboard is exposed beyond localhost (e.g. in Docker or behind a proxy).
+WEB_USERNAME = os.getenv("WEB_USERNAME", "").strip()
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
 
 # Status tracking for change notifications
 _previous_status = {}  # tf_id -> TestFlightStatus
@@ -165,12 +174,6 @@ class MetricsCollector:
 
 # Global metrics collector
 _metrics = MetricsCollector()
-
-_circuit_breaker_timeout = 300  # 5 minutes
-
-# Global HTTP session and lock
-_http_session = None
-_session_lock = threading.Lock()
 
 
 def is_circuit_breaker_open(url: str) -> bool:
@@ -1325,13 +1328,16 @@ def handle_shutdown_signal():
     shutdown_event.set()
 
 
-# Only attach signal handlers on non-Windows
-if os.name != "nt":
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+def install_signal_handlers():
+    """Attach SIGINT/SIGTERM handlers to the running event loop.
+
+    Must be called from within the running loop (e.g. async_main) so the
+    handlers are registered on the loop that actually serves the app.
+    Falls back gracefully on platforms (Windows) that don't support it.
+    """
+    if os.name == "nt":
+        return
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig, handle_shutdown_signal)
@@ -1380,8 +1386,41 @@ async def lifespan(app: FastAPI):
         await cleanup_http_session()
 
 
+# Optional HTTP Basic auth (see WEB_USERNAME / WEB_PASSWORD above).
+_basic_security = HTTPBasic(auto_error=False)
+
+# Paths that must stay reachable without credentials: the health check (used by
+# Docker/orchestrators) and static assets (served by a sub-app anyway).
+_AUTH_EXEMPT_PREFIXES = ("/api/health", "/static")
+
+
+def require_auth(
+    request: Request,
+    credentials: Optional[HTTPBasicCredentials] = Depends(_basic_security),
+):
+    """Enforce HTTP Basic auth when credentials are configured.
+
+    No-op when WEB_USERNAME/WEB_PASSWORD are unset (localhost-only deployments).
+    """
+    if not (WEB_USERNAME and WEB_PASSWORD):
+        return
+    if request.url.path.startswith(_AUTH_EXEMPT_PREFIXES):
+        return
+    valid = (
+        credentials is not None
+        and secrets.compare_digest(credentials.username, WEB_USERNAME)
+        and secrets.compare_digest(credentials.password, WEB_PASSWORD)
+    )
+    if not valid:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
 # FastAPI server
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, dependencies=[Depends(require_auth)])
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -2069,8 +2108,22 @@ async def start_fastapi():
     """Start FastAPI server as an async task with graceful shutdown handling."""
     server = None
     try:
-        default_host = os.getenv("FASTAPI_HOST", "0.0.0.0")
+        # Default to loopback so the dashboard (which can read/write .env and
+        # control the process) is not exposed on all interfaces by accident.
+        # Set FASTAPI_HOST=0.0.0.0 to expose it, ideally with WEB_USERNAME/
+        # WEB_PASSWORD configured.
+        default_host = os.getenv("FASTAPI_HOST", "127.0.0.1")
         default_port = int(os.getenv("FASTAPI_PORT", random.randint(8000, 9000)))
+
+        if default_host not in ("127.0.0.1", "localhost", "::1") and not (
+            WEB_USERNAME and WEB_PASSWORD
+        ):
+            logging.warning(
+                "Web dashboard is bound to %s without WEB_USERNAME/WEB_PASSWORD "
+                "set. Anyone who can reach this port can read your .env secrets "
+                "and control the process. Set credentials to enable auth.",
+                default_host,
+            )
 
         logging.info(f"Starting FastAPI server on {default_host}:{default_port}")
 
@@ -2126,6 +2179,10 @@ async def async_main():
     try:
         logging.info("Starting TestFlight Apprise Notifier v%s", __version__)
         logging.info("All services starting...")
+
+        # Register signal handlers on the running loop so SIGTERM (e.g.
+        # `docker stop`) triggers a graceful shutdown.
+        install_signal_handlers()
 
         # Create tasks
         watching_task = asyncio.create_task(start_watching())

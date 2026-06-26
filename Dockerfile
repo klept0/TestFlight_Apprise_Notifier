@@ -26,9 +26,9 @@ EXPOSE 8080
 ENV FASTAPI_HOST=0.0.0.0 \
     FASTAPI_PORT=8080
 
-# Health check
+# Health check (uses stdlib urllib so no extra dependency is required)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/api/health')"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/api/health', timeout=5).status == 200 else 1)"
 
 # Run the application
 CMD ["python", "main.py"]
