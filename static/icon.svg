@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="TestFlight Apprise Notifier">
+  <!-- Full-bleed background so the icon also works as a maskable PWA icon -->
+  <rect width="512" height="512" fill="#6366f1"/>
+  <!-- Paper-plane glyph, centered within the maskable safe zone -->
+  <g fill="#ffffff">
+    <path d="M376 150 152 270c-8 4-7 16 1 19l60 22 24 74c3 8 14 9 19 2l34-46 70 51c7 5 17 1 19-8l38-225c2-11-9-19-19-13z" opacity="0.96"/>
+    <path d="M236 333l-1 49c0 9 11 13 17 6l27-33z" fill="#c7d2fe"/>
+  </g>
+</svg>

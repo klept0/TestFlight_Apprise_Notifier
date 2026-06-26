@@ -1,0 +1,19 @@
+{
+  "name": "TestFlight Apprise Notifier",
+  "short_name": "TF Notifier",
+  "description": "Monitor TestFlight beta availability and send Apprise notifications.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
