@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   testflight-notifier:
     build: .
@@ -14,13 +12,18 @@ services:
       - FASTAPI_HOST=0.0.0.0
       - FASTAPI_PORT=8080
       - TZ=America/New_York  # Set your timezone
+      # The dashboard is exposed on 0.0.0.0 here, so protect it with auth.
+      # Set these (e.g. in .env) to require an HTTP Basic login:
+      # - WEB_USERNAME=admin
+      # - WEB_PASSWORD=change-me
     volumes:
-      # Optional: Mount .env file from host
-      - ./.env:/app/.env:ro
+      # Mount .env read-write so the in-app config editor and add/remove
+      # ID/URL features can persist changes back to the host file.
+      - ./.env:/app/.env
       # Optional: Persistent data directory
       - ./data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/api/health', timeout=5).status == 200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

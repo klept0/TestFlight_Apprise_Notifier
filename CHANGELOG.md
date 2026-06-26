@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Security
+- **Optional dashboard authentication** - HTTP Basic auth gated by `WEB_USERNAME` / `WEB_PASSWORD`. When set, all routes except `/api/health` and `/static` require credentials; when unset, behavior is unchanged. Recommended whenever the dashboard is exposed beyond localhost.
+- **Localhost by default** - `FASTAPI_HOST` now defaults to `127.0.0.1` instead of `0.0.0.0`, so the dashboard (which can read/write `.env` and stop/restart the process) is not exposed on all interfaces by accident. A startup warning is logged when bound to a non-loopback host without credentials.
+
+### Bug Fixes
+- **Docker healthcheck** - Replaced the `requests`-based healthcheck (an undeclared dependency that left the container permanently `unhealthy`) with a stdlib `urllib` check that exits non-zero on failure.
+- **Graceful shutdown** - Signal handlers were registered at import time on an event loop that `asyncio.run()` never used, so `SIGTERM` (e.g. `docker stop`) skipped cleanup. They are now attached to the running loop in `async_main()`.
+
+### Improvements
+- **Docker Compose** - Mount `.env` read-write so the in-app config editor and add/remove ID/URL features persist (the previous `:ro` mount silently broke them), removed the obsolete `version:` key, and documented the new auth variables.
+- **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations.
+
+---
+
 ## v1.0.5e - October 3, 2025
 
 ### New Features
