@@ -31,7 +31,13 @@ import routes  # noqa: E402
 def client():
     # No context manager -> lifespan startup is skipped, so no background
     # update task / outbound calls are spawned during tests.
-    return TestClient(main.app)
+    c = TestClient(main.app)
+    # Obtain a CSRF cookie and echo it on subsequent state-changing requests.
+    c.get("/")
+    token = c.cookies.get("csrf_token")
+    if token:
+        c.headers.update({"X-CSRF-Token": token})
+    return c
 
 
 # ── Read endpoints ──────────────────────────────────────────────
@@ -117,6 +123,29 @@ def test_add_and_remove_apprise_url(client, monkeypatch):
     r = client.request("DELETE", f"/api/apprise-urls/{encoded}")
     assert r.status_code == 200
     assert url not in r.json()["apprise_urls"]
+
+
+# ── CSRF protection ─────────────────────────────────────────────
+def test_csrf_blocks_state_change_without_token():
+    # Fresh client with no CSRF cookie/header -> state change rejected.
+    c = TestClient(main.app)
+    assert c.post("/api/testflight-ids/validate", json={"id": "abcd1234"}).status_code == 403
+    assert c.delete("/api/testflight-ids/anything").status_code == 403
+    assert c.post("/api/control/stop").status_code == 403
+
+
+def test_csrf_does_not_affect_get():
+    c = TestClient(main.app)
+    assert c.get("/api/health").status_code == 200
+    assert c.get("/api/testflight-ids").status_code == 200
+    assert c.get("/api/metrics").status_code == 200
+
+
+def test_csrf_allows_state_change_with_token(client):
+    # The `client` fixture already carries a valid CSRF cookie + header.
+    r = client.post("/api/testflight-ids/validate", json={"id": "!!bad!!"})
+    assert r.status_code == 200
+    assert r.json()["valid"] is False
 
 
 # ── Optional HTTP Basic auth ────────────────────────────────────

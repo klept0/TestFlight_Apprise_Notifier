@@ -9,6 +9,7 @@ import random
 import secrets
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime
@@ -213,6 +214,51 @@ def require_auth(
 # FastAPI server
 app = FastAPI(lifespan=lifespan, dependencies=[Depends(require_auth)])
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# --- CSRF protection (double-submit cookie) ----------------------------------
+CSRF_COOKIE = "csrf_token"
+CSRF_HEADER = "x-csrf-token"
+CSRF_SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+
+
+def _issue_csrf_cookie(response, existing):
+    """Set a CSRF cookie on the response if the client doesn't have one yet."""
+    if not existing:
+        response.set_cookie(
+            CSRF_COOKIE,
+            secrets.token_urlsafe(32),
+            samesite="strict",
+            httponly=False,  # readable by JS so it can echo the value in a header
+            path="/",
+        )
+
+
+@app.middleware("http")
+async def csrf_protect(request: Request, call_next):
+    """Require a matching CSRF token on every state-changing request.
+
+    Double-submit-cookie pattern: the browser holds a ``csrf_token`` cookie and
+    must echo it in the ``X-CSRF-Token`` header for any non-safe method. Safe
+    methods (GET/HEAD/OPTIONS) are never blocked — they only get a cookie issued.
+    """
+    cookie_token = request.cookies.get(CSRF_COOKIE)
+    if request.method not in CSRF_SAFE_METHODS:
+        header_token = request.headers.get(CSRF_HEADER, "")
+        if not (
+            cookie_token
+            and header_token
+            and secrets.compare_digest(cookie_token, header_token)
+        ):
+            resp = JSONResponse(
+                {"detail": "CSRF token missing or invalid"}, status_code=403
+            )
+            _issue_csrf_cookie(resp, cookie_token)
+            return resp
+    response = await call_next(request)
+    _issue_csrf_cookie(response, cookie_token)
+    return response
+
 
 # Web routes live in routes.py (APIRouter).
 from routes import router  # noqa: E402  (imported after app/auth are defined)
