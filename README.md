@@ -7,6 +7,9 @@ A Python-based monitoring tool that continuously checks Apple TestFlight beta av
 - 🔔 **Real-time Notifications** – Get notified instantly when a TestFlight beta opens up
 - 📱 **80+ Notification Services** – Supports Discord, Slack, Telegram, Pushover, Email, and many more via Apprise
 - 🌐 **Web Dashboard** – Modern full-page FastAPI web interface with sidebar navigation
+- 🔒 **Optional Authentication** – Protect the dashboard/API with HTTP Basic auth; binds to localhost by default
+- 📲 **Installable (PWA)** – Responsive, mobile-friendly dashboard you can add to your home screen
+- 📖 **Interactive API Docs** – Auto-generated OpenAPI docs at `/docs`
 - 🐳 **Docker Support** – Easy deployment with Docker and Docker Compose
 - ⚡ **High Performance** – Async HTTP requests with connection pooling and caching
 - 🔄 **Status Tracking** – Detects status changes (Open, Full, Closed) and notifies accordingly
@@ -108,10 +111,14 @@ All configuration is done through environment variables in the `.env` file. You 
 | `GITHUB_REPO` | `klept0/TestFlight_Apprise_Notifier` | GitHub repo to check for updates |
 | `GITHUB_BRANCH` | `main` | Branch to compare against for update checks |
 | `UI_THEME` | `dark` | Default web dashboard theme (`dark` or `light`) |
-| `FASTAPI_HOST` | `0.0.0.0` | Web dashboard bind address |
-| `FASTAPI_PORT` | `8080` | Web dashboard port |
+| `FASTAPI_HOST` | `127.0.0.1` | Web dashboard bind address (set `0.0.0.0` to expose it) |
+| `FASTAPI_PORT` | random `8000–9000` | Web dashboard port (set explicitly to keep it stable) |
+| `WEB_USERNAME` | _(unset)_ | Username for optional HTTP Basic auth on the dashboard/API |
+| `WEB_PASSWORD` | _(unset)_ | Password for optional HTTP Basic auth (auth is enabled only when both are set) |
 
 > **Note:** `UI_THEME` sets the server-side default for new visitors. Each browser can override it independently via the theme toggle in the dashboard — the preference is saved in `localStorage`.
+
+> **🔒 Security:** The dashboard can read/write your `.env` (which contains your notification secrets) and stop/restart the process. It binds to `127.0.0.1` by default for that reason. If you expose it (`FASTAPI_HOST=0.0.0.0`, e.g. in Docker), set `WEB_USERNAME` and `WEB_PASSWORD` to require a login. `/api/health` stays open for health checks.
 
 ### Example `.env` File
 
@@ -151,8 +158,14 @@ GITHUB_CHECK_INTERVAL_HOURS=24
 
 # --- Web Dashboard --------------------------------------------
 
-FASTAPI_HOST=0.0.0.0
+# Bind to localhost by default. Only set 0.0.0.0 if you also set the
+# WEB_USERNAME / WEB_PASSWORD below to require a login.
+FASTAPI_HOST=127.0.0.1
 FASTAPI_PORT=8080
+
+# Optional HTTP Basic auth (both must be set to enable it)
+WEB_USERNAME=
+WEB_PASSWORD=
 
 # Default UI theme for new visitors (dark / light)
 UI_THEME=dark
@@ -198,16 +211,25 @@ Once running, access the web dashboard at `http://localhost:8080` (or your confi
 
 ### API Endpoints
 
+Interactive OpenAPI docs are available at `/docs`.
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Web dashboard |
-| `/api/health` | GET | Health check |
-| `/api/status` | GET | Current status of all monitored TestFlight IDs |
+| `/docs` | GET | Interactive API documentation (Swagger UI) |
+| `/api/health` | GET | Health check (always reachable, even with auth enabled) |
 | `/api/metrics` | GET | Application metrics (uptime, check counts, etc.) |
-| `/api/logs` | GET | Recent log entries |
+| `/api/logs` | GET | Recent log entries (`?limit=` 1–1000) |
+| `/api/updates` | GET | Check GitHub for a newer version (`?force=true` to bypass cache) |
+| `/api/testflight-ids` | GET / POST | List or add a monitored TestFlight ID |
+| `/api/testflight-ids/details` | GET | Monitored IDs with app names and icons |
+| `/api/testflight-ids/{id}` | DELETE | Remove a TestFlight ID |
+| `/api/testflight-ids/batch` | POST | Add/remove multiple IDs at once |
+| `/api/apprise-urls` | GET / POST | List or add an Apprise notification URL |
+| `/api/apprise-urls/{url}` | DELETE | Remove an Apprise URL |
 | `/api/config` | GET / POST | Read or write the `.env` configuration file |
-| `/add` | POST | Add a TestFlight ID |
-| `/remove` | POST | Remove a TestFlight ID |
+| `/api/control/stop` | POST | Stop the service |
+| `/api/control/restart` | POST | Restart the service (re-executes in place) |
 
 ## Dependencies
 
@@ -221,6 +243,20 @@ uvicorn[standard]>=0.45.0,<1.0.0
 colorama>=0.4.6,<1.0.0
 python-multipart
 ```
+
+## Project Structure
+
+The application is organized into focused modules:
+
+| File | Responsibility |
+|------|----------------|
+| `main.py` | App wiring: FastAPI app, auth dependency, lifespan, the monitor loop, and the entrypoint |
+| `config.py` | Environment/configuration parsing (loads `.env`, exposes settings and constants) |
+| `state.py` | Shared runtime state and business logic: Apprise object, HTTP session, ID/URL management, validation, GitHub update checker, `.env` persistence |
+| `routes.py` | The web/API layer as a FastAPI `APIRouter` (all dashboard and API endpoints) |
+| `utils/` | Helpers: `testflight.py` (status detection), `formatting.py`, `notifications.py`, `metrics.py`, `service_icons.py`, `web_logging.py`, `colors.py` |
+| `templates/`, `static/` | Dashboard HTML template and the CSS/JS/PWA assets |
+| `tests/` | Pytest suite (`test_testflight.py` for status detection, `test_api.py` for the API layer) |
 
 ## Troubleshooting
 
@@ -244,7 +280,7 @@ python-multipart
 
 ### Settings not reflecting `.env` values
 
-Ensure `load_dotenv()` runs before any `os.getenv()` calls. If you edit the `.env` file through the dashboard, use the **Restart** button on the Dashboard to apply changes.
+Configuration is loaded once at startup (`config.py` calls `load_dotenv()`). If you edit the `.env` file — directly or through the dashboard's Settings editor — use the **Restart** button on the Dashboard to apply the changes.
 
 ## License
 

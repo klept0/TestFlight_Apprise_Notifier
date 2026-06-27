@@ -12,6 +12,7 @@
 - **Restart from the dashboard** - Now re-executes in place via `os.execv` instead of spawning a child process. The previous approach spawned a child that died with the container (so restart did nothing under Docker). Also warns when `FASTAPI_PORT` is unset, since the dashboard could otherwise return on a different random port.
 
 ### Improvements
+- **Mobile / PWA polish** - Added a web manifest and app icon so the dashboard is installable ("Add to Home Screen"), a `theme-color` that tracks the light/dark toggle, iOS/Android web-app meta tags with notch-safe areas, and `prefers-reduced-motion` support.
 - **Docker Compose** - Mount `.env` read-write so the in-app config editor and add/remove ID/URL features persist (the previous `:ro` mount silently broke them), removed the obsolete `version:` key, and documented the new auth variables.
 - **Non-root container** - The Docker image now runs as an unprivileged user (uid 10001) instead of root.
 - **Non-blocking notifications** - The heartbeat loop and the stop/restart endpoints now send notifications via the async helper so a slow notification service no longer stalls the event loop.
