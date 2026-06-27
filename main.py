@@ -309,6 +309,12 @@ async def watch():
 
 async def heartbeat():
     """Send periodic heartbeat notifications."""
+    # HEARTBEAT_INTERVAL <= 0 disables the heartbeat entirely (see README /
+    # .env.example). Without this guard, sleep(0) would busy-loop and flood
+    # notifications.
+    if HEARTBEAT_INTERVAL <= 0:
+        logging.info("Heartbeat disabled (HEARTBEAT_INTERVAL=0)")
+        return
     try:
         while True:
             current_time = format_datetime(datetime.now())
