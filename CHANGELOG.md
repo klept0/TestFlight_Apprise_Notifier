@@ -7,6 +7,9 @@
 - **Localhost by default** - `FASTAPI_HOST` now defaults to `127.0.0.1` instead of `0.0.0.0`, so the dashboard (which can read/write `.env` and stop/restart the process) is not exposed on all interfaces by accident. A startup warning is logged when bound to a non-loopback host without credentials.
 
 ### Bug Fixes
+- **Stop/Restart buttons** - The dashboard's confirm dialog cleared its callback before invoking it, so confirming Stop/Restart closed the modal without doing anything. The action now runs as expected.
+- **Heartbeat disable** - `HEARTBEAT_INTERVAL=0` is documented as "disable", but the code did `sleep(0)` in a loop and busy-spun, flooding notifications. It now disables the heartbeat as documented.
+- **Missing `jinja2` dependency** - Added `jinja2` to `requirements.txt`; the dashboard's `Jinja2Templates` need it, but a fresh install previously crashed on startup with `ImportError`.
 - **Docker healthcheck** - Replaced the `requests`-based healthcheck (an undeclared dependency that left the container permanently `unhealthy`) with a stdlib `urllib` check that exits non-zero on failure.
 - **Graceful shutdown** - Signal handlers were registered at import time on an event loop that `asyncio.run()` never used, so `SIGTERM` (e.g. `docker stop`) skipped cleanup. They are now attached to the running loop in `async_main()`.
 - **Restart from the dashboard** - Now re-executes in place via `os.execv` instead of spawning a child process. The previous approach spawned a child that died with the container (so restart did nothing under Docker). Also warns when `FASTAPI_PORT` is unset, since the dashboard could otherwise return on a different random port.
