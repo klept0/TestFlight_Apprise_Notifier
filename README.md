@@ -90,7 +90,12 @@ The notifier detects the following TestFlight statuses:
    docker-compose logs -f
    ```
 
-For detailed Docker instructions, see [DOCKER.md](DOCKER.md).
+The container runs as a **non-root user (uid 10001)** and mounts `./.env`
+(read-write) and `./data` (persistent runtime state + per-app config). If those
+host paths aren't writable by uid 10001, the app logs a clear startup warning
+and continues with the affected features disabled — `sudo chown 10001:10001 .env`
+and `sudo chown -R 10001:10001 data` to fix. For detailed Docker instructions,
+including permissions, see [DOCKER.md](DOCKER.md).
 
 ## Configuration
 

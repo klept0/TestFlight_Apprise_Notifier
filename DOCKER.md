@@ -76,10 +76,37 @@ FASTAPI_PORT=8080
 
 ### Volumes
 
-The `docker-compose.yml` includes optional volume mounts:
+The `docker-compose.yml` mounts:
 
-- `./.env:/app/.env:ro` - Mount your .env file (read-only)
-- `./data:/app/data` - Persistent data directory (for future use)
+- `./.env:/app/.env` — your configuration file. Mounted **read-write** so the
+  dashboard config editor and add/remove of IDs/URLs can persist. The app reads
+  it at startup and still runs if it is read-only (those edit features are just
+  disabled, and a warning is logged).
+- `./data:/app/data` — **persistent runtime state and per-app config**. Mount
+  this to keep `data/state.json` (per-ID status, timestamps, failure counts,
+  caches) and `data/app_config.json` (per-app settings) across restarts.
+
+#### Permissions (non-root container)
+
+The image runs as a **non-root user (uid 10001)**. The host files/dirs it
+writes must be writable by that user, or writes silently fail (the app logs a
+clear startup warning and continues with those features disabled). On startup
+the app validates these paths and warns about any it can't write.
+
+If you hit permission warnings, give the container user ownership on the host:
+
+```bash
+# Make the mounted .env and data dir writable by the container user (uid 10001)
+sudo chown 10001:10001 .env
+mkdir -p data && sudo chown -R 10001:10001 data
+```
+
+> A present-but-**unreadable** `.env` is treated as a fatal misconfiguration and
+> the app refuses to start with a clear error. An unwritable (but readable)
+> `.env`, or an unwritable `data/`, only produces warnings.
+
+Logs go to the container's stdout (`docker compose logs`); the app does not
+write a log file, so no log path needs mounting.
 
 ### Networking
 
@@ -174,11 +201,14 @@ docker exec testflight-notifier curl http://localhost:8080/api/health
 
 ### Permission Issues
 
-If you encounter permission issues with volumes:
+The container runs as a non-root user (**uid 10001**). If the startup logs show
+`Startup path check: ... is not writable`, the mounted `.env` or `data/` isn't
+writable by that user. Fix the host ownership:
 
 ```bash
-# Linux: Fix permissions
-sudo chown -R $USER:$USER ./data
+# Make the mounted config + data writable by the container user (uid 10001)
+sudo chown 10001:10001 .env
+mkdir -p data && sudo chown -R 10001:10001 data
 ```
 
 ## Advanced Configuration
