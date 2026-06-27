@@ -20,6 +20,48 @@ STATE_FILE = os.getenv("STATE_FILE", "data/state.json")
 STATE_VERSION = 1
 
 
+def read_json(path: str, default=None):
+    """Load a JSON value from ``path``; return ``default`` on missing/corrupt.
+
+    Generic, reusable counterpart to :func:`load_state` for other JSON stores
+    (e.g. the Library). Never raises on a bad or missing file.
+    """
+    fallback = {} if default is None else default
+    try:
+        if not os.path.exists(path):
+            return fallback
+        with open(path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, ValueError, OSError) as e:
+        logging.warning("Could not read JSON file '%s' (%s); using default", path, e)
+        return fallback
+
+
+def atomic_write_json(path: str, data) -> bool:
+    """Atomically write ``data`` as JSON to ``path`` (temp + fsync + os.replace).
+
+    Generic, reusable counterpart to :func:`save_state`. Returns True on
+    success; logs and returns False on failure (never raises).
+    """
+    try:
+        directory = os.path.dirname(os.path.abspath(path)) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=".json.", suffix=".tmp", dir=directory)
+        try:
+            with os.fdopen(fd, "w") as tmp:
+                json.dump(data, tmp, indent=2)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        return True
+    except OSError as e:
+        logging.error("Failed to write JSON file '%s': %s", path, e)
+        return False
+
+
 def load_state() -> dict:
     """Load persisted runtime state.
 

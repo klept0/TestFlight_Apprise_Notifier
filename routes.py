@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 import app_config
 import config_io
+import library
+import persistence
 import state
 from state import (
     apobj,
@@ -288,13 +290,26 @@ async def add_id(payload: TestFlightIdRequest):
     return {"message": message, "testflight_ids": get_current_id_list()}
 
 
+def _archive_to_library(tf_id):
+    """Archive a removed app into the Library History (best-effort metadata)."""
+    settings = app_config.get(tf_id)
+    cache_key = f"{TESTFLIGHT_URL}:{tf_id}"
+    app_name = settings.get("friendly_name") or app_name_cache.get(cache_key)
+    icon_url = app_icon_cache.get(cache_key)
+    state_data = persistence.read_json(persistence.STATE_FILE, default={})
+    apps = state_data.get("apps", {}) if isinstance(state_data, dict) else {}
+    last_status = (apps.get(tf_id) or {}).get("status")
+    library.archive(tf_id, app_name=app_name, icon_url=icon_url, last_status=last_status)
+
+
 @router.delete("/api/testflight-ids/{tf_id}")
 async def remove_id(tf_id: str):
-    """Remove a TestFlight ID."""
+    """Remove a TestFlight ID (and archive it to the Library)."""
     success, message = remove_testflight_id(tf_id)
     if not success:
         raise HTTPException(status_code=404, detail=message)
 
+    _archive_to_library(tf_id)
     return {"message": message, "testflight_ids": get_current_id_list()}
 
 
@@ -361,6 +376,7 @@ async def batch_operations(payload: BatchIdRequest):
         try:
             success, message = remove_testflight_id(tf_id)
             if success:
+                _archive_to_library(tf_id)
                 result["removed"]["successful"].append(tf_id)
             else:
                 result["removed"]["failed"].append({"id": tf_id, "error": message})
@@ -675,6 +691,46 @@ async def import_config(request: Request):
         "success": True,
         "message": "Configuration imported. Restart to apply changes.",
     }
+
+
+# ── Library (archive of removed apps) ──────────────────────────────────────
+@router.get("/api/library")
+async def get_library(search: str = None, sort: str = "archived"):
+    """List archived (History) apps. Optional ?search= and ?sort=name|archived."""
+    return {
+        "history": library.get_history(search=search, sort=sort),
+        "favorites": library.get_favorites(),
+    }
+
+
+@router.post("/api/library/{tf_id}/restore")
+async def restore_from_library(tf_id: str):
+    """Restore an archived app back to monitoring (CSRF-protected)."""
+    if not library.get_entry(tf_id):
+        raise HTTPException(status_code=404, detail="Not in library")
+    if tf_id not in get_current_id_list():
+        success, message = add_testflight_id(tf_id)
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+    library.remove(tf_id)
+    logging.info("Restored %s from library to monitoring", tf_id)
+    return {"success": True, "testflight_ids": get_current_id_list()}
+
+
+@router.delete("/api/library/{tf_id}")
+async def delete_from_library(tf_id: str):
+    """Delete a single History entry (CSRF-protected)."""
+    if not library.remove(tf_id):
+        raise HTTPException(status_code=404, detail="Not in library")
+    return {"success": True}
+
+
+@router.delete("/api/library")
+async def clear_library():
+    """Clear all History entries (CSRF-protected)."""
+    count = library.clear()
+    logging.info("Cleared %d entries from library", count)
+    return {"success": True, "removed": count}
 
 
 @router.get("/config")

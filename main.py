@@ -10,6 +10,7 @@ import secrets
 import time
 import persistence
 import app_config
+import library
 import startup_checks
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -700,6 +701,8 @@ async def async_main():
 
         # Load per-app configuration (enabled, friendly names, toggles, etc.).
         app_config.load_from_disk()
+        # Load the Library (archive of removed apps).
+        library.load_from_disk()
 
         # Restore persisted runtime state before monitoring starts so we resume
         # without re-sending duplicate notifications, then (re)create the file.
