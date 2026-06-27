@@ -16,6 +16,7 @@
 - **Non-root container** - The Docker image now runs as an unprivileged user (uid 10001) instead of root.
 - **Non-blocking notifications** - The heartbeat loop and the stop/restart endpoints now send notifications via the async helper so a slow notification service no longer stalls the event loop.
 - **Typed request models** - The TestFlight ID and Apprise URL endpoints now use Pydantic request models instead of manual JSON parsing, giving proper request validation and accurate schemas in the auto-generated API docs at `/docs`.
+- **Module split** - Began breaking up the `main.py` monolith: extracted the metrics collector into `utils/metrics.py` and the Apprise service-icon lookup into `utils/service_icons.py` (behaviour unchanged), trimming `main.py` by ~260 lines.
 - **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations, the unused circuit-breaker helpers (`is_circuit_breaker_open` / `record_request_*`, never wired into the request path — the `/api/health` `circuit_breaker` field is gone), and the unused `check_multiple_testflight_urls` utility.
 
 ---
