@@ -309,11 +309,13 @@ async def watch():
 
 async def heartbeat():
     """Send periodic heartbeat notifications."""
-    # HEARTBEAT_INTERVAL <= 0 disables the heartbeat entirely (see README /
-    # .env.example). Without this guard, sleep(0) would busy-loop and flood
-    # notifications.
+    # HEARTBEAT_INTERVAL <= 0 disables the heartbeat (see README / .env.example).
+    # Wait for shutdown instead of returning: a sleep(0) loop would busy-spin and
+    # flood notifications, while returning immediately would complete this task
+    # and trip async_main's FIRST_COMPLETED wait, shutting the app down at startup.
     if HEARTBEAT_INTERVAL <= 0:
         logging.info("Heartbeat disabled (HEARTBEAT_INTERVAL=0)")
+        await shutdown_event.wait()
         return
     try:
         while True:
