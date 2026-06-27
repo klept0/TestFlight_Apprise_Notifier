@@ -22,6 +22,7 @@ os.environ.pop("WEB_USERNAME", None)
 os.environ.pop("WEB_PASSWORD", None)
 
 import main  # noqa: E402
+import state  # noqa: E402
 
 
 @pytest.fixture
@@ -79,11 +80,11 @@ def test_add_and_remove_testflight_id(client, monkeypatch):
         return True, "ok"
 
     monkeypatch.setattr(main, "validate_testflight_id", fake_validate)
-    monkeypatch.setattr(main, "update_env_file", lambda *a, **k: True)
-    monkeypatch.setattr(main, "send_notification", lambda *a, **k: None)
+    monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
+    monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
 
     test_id = "abcd1234"
-    main.current_id_list[:] = [x for x in main.current_id_list if x != test_id]
+    state.current_id_list[:] = [x for x in state.current_id_list if x != test_id]
 
     r = client.post("/api/testflight-ids", json={"id": test_id})
     assert r.status_code == 200, r.text
@@ -100,11 +101,11 @@ def test_remove_unknown_id_404(client):
 
 
 def test_add_and_remove_apprise_url(client, monkeypatch):
-    monkeypatch.setattr(main, "update_env_file", lambda *a, **k: True)
-    monkeypatch.setattr(main, "send_notification", lambda *a, **k: None)
+    monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
+    monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
 
     url = "discord://aaaa/bbbb"
-    main.current_apprise_urls[:] = [u for u in main.current_apprise_urls if u != url]
+    state.current_apprise_urls[:] = [u for u in state.current_apprise_urls if u != url]
 
     r = client.post("/api/apprise-urls", json={"url": url})
     assert r.status_code == 200, r.text
