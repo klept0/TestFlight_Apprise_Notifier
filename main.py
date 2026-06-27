@@ -10,6 +10,7 @@ import secrets
 import time
 import persistence
 import app_config
+import startup_checks
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
@@ -669,6 +670,12 @@ async def start_fastapi():
 def main():
     """Main function to start all tasks."""
     validate_auth_config()
+    # Warn (or fail) about unwritable/unreadable runtime paths before serving.
+    if not startup_checks.run_startup_validation(
+        ".env", persistence.STATE_FILE, app_config.APP_CONFIG_FILE
+    ):
+        logging.error("Refusing to start: a required path is not readable.")
+        sys.exit(1)
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:
