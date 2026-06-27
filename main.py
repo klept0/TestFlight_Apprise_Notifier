@@ -7,6 +7,8 @@ import logging
 import signal
 import random
 import secrets
+import time
+import persistence
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
@@ -32,6 +34,8 @@ from utils.formatting import (
     format_notification_link,
     get_app_icon,
     get_app_name,
+    app_name_cache,
+    app_icon_cache,
 )
 from utils.colors import print_green
 from utils.testflight import (
@@ -98,6 +102,80 @@ _status_lock = threading.Lock()
 # Track whether an OPEN notification has been sent per TestFlight ID
 _open_notified: Dict[str, bool] = {}  # tf_id -> notification sent?
 _open_notified_lock = threading.Lock()
+
+# Additional per-ID runtime state (guarded by _status_lock).
+_last_notification_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
+_last_success_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
+_failure_count: Dict[str, int] = {}  # tf_id -> consecutive failures
+
+
+def snapshot_runtime_state() -> dict:
+    """Build a JSON-serializable snapshot of the monitor's runtime state."""
+    with _status_lock:
+        prev = dict(_previous_status)
+        notif = dict(_last_notification_ts)
+        succ = dict(_last_success_ts)
+        fail = dict(_failure_count)
+    with _open_notified_lock:
+        opened = dict(_open_notified)
+
+    apps = {}
+    for tf_id in set(prev) | set(notif) | set(succ) | set(fail) | set(opened):
+        cache_key = f"{TESTFLIGHT_URL}:{tf_id}"
+        status = prev.get(tf_id)
+        apps[tf_id] = {
+            "status": status.value if status else None,
+            "notified_open": opened.get(tf_id, False),
+            "last_notification_ts": notif.get(tf_id),
+            "last_success_ts": succ.get(tf_id),
+            "failure_count": fail.get(tf_id, 0),
+            "app_name": app_name_cache.get(cache_key),
+            "icon_url": app_icon_cache.get(cache_key),
+        }
+    return {"version": persistence.STATE_VERSION, "apps": apps}
+
+
+def restore_runtime_state(snapshot: dict) -> None:
+    """Repopulate live monitor state from a snapshot, skipping bad entries."""
+    apps = (snapshot or {}).get("apps", {})
+    if not isinstance(apps, dict):
+        return
+    restored = 0
+    for tf_id, rec in apps.items():
+        if not isinstance(rec, dict):
+            continue
+        try:
+            with _status_lock:
+                status_val = rec.get("status")
+                if status_val:
+                    try:
+                        _previous_status[tf_id] = TestFlightStatus(status_val)
+                    except ValueError:
+                        pass
+                if rec.get("last_notification_ts") is not None:
+                    _last_notification_ts[tf_id] = float(rec["last_notification_ts"])
+                if rec.get("last_success_ts") is not None:
+                    _last_success_ts[tf_id] = float(rec["last_success_ts"])
+                _failure_count[tf_id] = int(rec.get("failure_count", 0) or 0)
+            with _open_notified_lock:
+                _open_notified[tf_id] = bool(rec.get("notified_open", False))
+
+            cache_key = f"{TESTFLIGHT_URL}:{tf_id}"
+            if rec.get("app_name"):
+                app_name_cache.put(cache_key, rec["app_name"])
+            if rec.get("icon_url"):
+                app_icon_cache.put(cache_key, rec["icon_url"])
+            restored += 1
+        except Exception as e:  # noqa: BLE001 - one bad entry must not abort restore
+            logging.warning("Skipping corrupt state entry for %s: %s", tf_id, e)
+
+    if restored:
+        logging.info("Restored runtime state for %d TestFlight ID(s)", restored)
+
+
+def persist_runtime_state() -> None:
+    """Persist the current runtime state snapshot to disk (best effort)."""
+    persistence.save_state(snapshot_runtime_state())
 
 
 # Configure colored console logging (see utils/web_logging.py).
@@ -278,6 +356,8 @@ async def fetch_testflight_status(session, tf_id):
 
         # Handle errors
         if result["status"] == TestFlightStatus.ERROR:
+            with _status_lock:
+                _failure_count[tf_id] = _failure_count.get(tf_id, 0) + 1
             logging.warning(
                 "%s - %s - Error: %s",
                 result.get("status_text", "Unknown"),
@@ -296,6 +376,8 @@ async def fetch_testflight_status(session, tf_id):
         with _status_lock:
             previous_status = _previous_status.get(tf_id)
             _previous_status[tf_id] = current_status
+            _last_success_ts[tf_id] = time.time()
+            _failure_count[tf_id] = 0
 
         # Determine if we should notify
         should_notify = False
@@ -358,9 +440,13 @@ async def fetch_testflight_status(session, tf_id):
                 base_url = "https://developer.apple.com/assets/elements/icons"
                 icon_url = f"{base_url}/testflight/testflight-64x64_2x.png"
             await send_notification_async(notify_msg, apobj, icon_url)
+            with _status_lock:
+                _last_notification_ts[tf_id] = time.time()
             logging.info(f"Notification sent for {app_name}")
 
     except Exception as e:
+        with _status_lock:
+            _failure_count[tf_id] = _failure_count.get(tf_id, 0) + 1
         _metrics.record_check(TestFlightStatus.ERROR, success=False)
         logging.error(f"Unexpected error fetching {tf_id}: {e}")
 
@@ -411,6 +497,8 @@ async def start_watching():
         await asyncio.sleep(2)
         while not shutdown_event.is_set():
             await watch()
+            # Persist after each cycle so state survives an unclean exit too.
+            persist_runtime_state()
             await asyncio.sleep(SLEEP_TIME / 1000)  # Convert ms to seconds
     except asyncio.CancelledError:
         logging.info("Watching task cancelled during shutdown")
@@ -491,6 +579,11 @@ async def async_main():
         # `docker stop`) triggers a graceful shutdown.
         install_signal_handlers()
 
+        # Restore persisted runtime state before monitoring starts so we resume
+        # without re-sending duplicate notifications, then (re)create the file.
+        restore_runtime_state(persistence.load_state())
+        persist_runtime_state()
+
         # Create tasks
         watching_task = asyncio.create_task(start_watching())
         heartbeat_task = asyncio.create_task(heartbeat())
@@ -534,6 +627,8 @@ async def async_main():
     except Exception as e:
         logging.error(f"Error in async main: {e}")
     finally:
+        # Persist runtime state on shutdown so the next start resumes cleanly.
+        persist_runtime_state()
         # Clean up HTTP session
         await cleanup_http_session()
         logging.info("HTTP session cleaned up.")
