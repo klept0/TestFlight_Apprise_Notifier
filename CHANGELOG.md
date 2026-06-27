@@ -15,6 +15,7 @@
 - **Docker Compose** - Mount `.env` read-write so the in-app config editor and add/remove ID/URL features persist (the previous `:ro` mount silently broke them), removed the obsolete `version:` key, and documented the new auth variables.
 - **Non-root container** - The Docker image now runs as an unprivileged user (uid 10001) instead of root.
 - **Non-blocking notifications** - The heartbeat loop and the stop/restart endpoints now send notifications via the async helper so a slow notification service no longer stalls the event loop.
+- **Typed request models** - The TestFlight ID and Apprise URL endpoints now use Pydantic request models instead of manual JSON parsing, giving proper request validation and accurate schemas in the auto-generated API docs at `/docs`.
 - **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations, the unused circuit-breaker helpers (`is_circuit_breaker_open` / `record_request_*`, never wired into the request path — the `/api/health` `circuit_breaker` field is gone), and the unused `check_multiple_testflight_urls` utility.
 
 ---
