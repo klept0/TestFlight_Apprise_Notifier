@@ -15,6 +15,7 @@ import os
 import shutil
 import tempfile
 
+import app_config
 import config
 import state
 
@@ -26,6 +27,7 @@ _ALLOWED_TOP_LEVEL = {
     "exported_at",
     "testflight_ids",
     "settings",
+    "app_settings",
     "notifications",
     "apprise_urls",
     "_warning",
@@ -61,6 +63,8 @@ def build_export(include_secrets: bool = False) -> dict:
             "interval_check_ms": config.SLEEP_TIME,
             "heartbeat_interval_hours": config.HEARTBEAT_INTERVAL // 3600,
         },
+        # Per-app overrides (enabled, friendly names, toggles); non-secret.
+        "app_settings": app_config.get_all(),
         # Non-secret notification metadata only (service names, never URLs/tokens).
         "notifications": {
             "configured_count": len(urls),
@@ -132,6 +136,18 @@ def validate_import(data) -> tuple:
                 return None, "heartbeat_interval_hours must be a non-negative integer"
             norm_s["heartbeat_interval_hours"] = v
         normalized["settings"] = norm_s
+
+    if "app_settings" in data:
+        apps = data["app_settings"]
+        if not isinstance(apps, dict):
+            return None, "app_settings must be an object"
+        norm_apps = {}
+        for tf_id, partial in apps.items():
+            norm, error = app_config.validate(partial)
+            if error:
+                return None, f"app_settings[{tf_id}]: {error}"
+            norm_apps[tf_id] = norm
+        normalized["app_settings"] = norm_apps
 
     # Replacement secrets are only honored if explicitly present in the import.
     if "apprise_urls" in data:
@@ -216,9 +232,19 @@ def apply_import(normalized: dict) -> bool:
     if "heartbeat_interval_hours" in settings:
         updates["HEARTBEAT_INTERVAL"] = str(settings["heartbeat_interval_hours"])
 
-    if not updates:
-        return True
+    env_ok = True
+    if updates:
+        env_ok = _write_env_updates(updates)
 
+    # Per-app settings live in their own config file (separate from .env).
+    if env_ok and "app_settings" in normalized:
+        app_config.replace_all(normalized["app_settings"])
+
+    return env_ok
+
+
+def _write_env_updates(updates: dict) -> bool:
+    """Apply key updates to .env as a single atomic, backed-up rewrite."""
     env_path = ".env"
     backup_path = f"{env_path}.backup"
     try:

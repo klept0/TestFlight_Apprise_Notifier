@@ -108,7 +108,7 @@ def _patch_fetch_deps(monkeypatch, sent, status=TestFlightStatus.OPEN):
     async def fake_icon(base, tf):
         return "http://i/x.png"
 
-    async def fake_link(base, tf):
+    async def fake_link(base, tf, name_override=None):
         return "Beta is OPEN"
 
     async def fake_send(*a, **k):
