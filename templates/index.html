@@ -402,6 +402,20 @@
             <div id="config-status" class="status-msg" role="status" aria-live="polite"></div>
           </div>
         </div>
+
+        <!-- Import / Export -->
+        <div class="card">
+          <div class="card-header"><h3>Import / Export Configuration</h3></div>
+          <div class="card-body">
+            <p class="text-muted text-sm mb-2">Export your monitored TestFlight IDs and settings to a <code>config.json</code> file (no secrets). Import replaces them; restart to apply.</p>
+            <div class="btn-group">
+              <button class="btn btn-secondary" onclick="exportConfig()">Export Config</button>
+              <button class="btn btn-secondary" onclick="triggerImportConfig()">Import Config</button>
+              <input type="file" id="import-config-file" accept="application/json,.json" style="display:none" onchange="importConfig(this)">
+            </div>
+            <div id="import-export-status" class="status-msg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
       </section>
 
       <!-- ═══════════════════════════════════

@@ -50,3 +50,4 @@ build/
 # Runtime state persistence
 data/state.json
 data/.state.*.tmp
+.env.backup
