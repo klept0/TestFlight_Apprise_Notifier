@@ -8,10 +8,8 @@ import threading
 import logging
 import signal
 import random
-import itertools
 import secrets
 import time
-from collections import deque
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Form, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -42,6 +40,14 @@ from utils.testflight import (
 )
 from utils.metrics import MetricsCollector
 from utils.service_icons import get_apprise_service_icon
+from utils.web_logging import (
+    configure_logging,
+    ensure_web_handler_attached,
+    get_recent_logs,
+    get_uvicorn_log_config,
+    log_entries,
+    log_entries_lock,
+)
 
 # Load .env before any os.getenv() calls so all variables see the file values
 load_dotenv()
@@ -210,142 +216,11 @@ HEARTBEAT_INTERVAL = (
 
 
 
-# Configure logging with colored output
-class ColoredFormatter(logging.Formatter):
-    """Custom formatter that adds color to log levels in console."""
+# Configure colored console logging (see utils/web_logging.py).
+configure_logging(__version__)
 
-    # ANSI color codes
-    COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[90m',       # Gray
-        'WARNING': '\033[93m',    # Yellow
-        'ERROR': '\033[91m',      # Red
-        'CRITICAL': '\033[91m',   # Red (same as ERROR)
-    }
-    RESET = '\033[0m'            # Reset color
-
-    def format(self, record):
-        # Get the log level color
-        levelname = record.levelname
-        color = self.COLORS.get(levelname, self.RESET)
-
-        # Color the level name
-        record.levelname = f"{color}{levelname}{self.RESET}"
-
-        # Format the message
-        return super().format(record)
-
-
-format_str = f"%(asctime)s - %(levelname)s - %(message)s [v{__version__}]"
-
-# Create console handler with colored formatter
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(ColoredFormatter(format_str))
-
-# Configure logging - use force=True to avoid duplicate basicConfig issues
-# Don't pass handlers here, we'll configure manually
-logging.basicConfig(level=logging.INFO, force=True)
-
-# Clear any default handlers and add only our custom one
-root_logger = logging.getLogger()
-root_logger.handlers.clear()
-root_logger.addHandler(console_handler)
-root_logger.setLevel(logging.INFO)
-
-# Prevent propagation in child loggers that might have their own handlers
-logging.getLogger("uvicorn").propagate = True
-logging.getLogger("uvicorn.error").propagate = True
-logging.getLogger("uvicorn.access").propagate = True
-
-# Web logging handler to capture logs for web interface
-log_entries: deque = deque(maxlen=100)  # Keep last 100 log entries
-log_entries_lock = threading.Lock()  # Thread safety for log access
+# Timestamp used for uptime reporting in the dashboard.
 app_start_time = datetime.now()
-
-
-class WebLogHandler(logging.Handler):
-    def emit(self, record):
-        log_entry = {
-            "timestamp": datetime.fromtimestamp(record.created).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            "level": record.levelname,
-            "message": record.getMessage(),
-        }
-        with log_entries_lock:
-            log_entries.append(log_entry)
-
-
-def get_recent_logs(limit: int = 20) -> list:
-    """Thread-safe function to get recent log entries."""
-    with log_entries_lock:
-        total_entries = len(log_entries)
-        if total_entries == 0:
-            return []
-
-        # Use efficient slicing for better performance
-        start_idx = max(0, total_entries - limit)
-        return list(itertools.islice(log_entries, start_idx, total_entries))
-
-
-# Add the web log handler to the root logger (will be attached in ensure_web_handler_attached)
-web_handler = WebLogHandler()
-_web_handler_attached = False  # Track if web handler has been attached
-
-
-def ensure_web_handler_attached():
-    """
-    Ensure WebLogHandler is attached to all relevant loggers.
-    This is called after uvicorn initializes to make sure our handler
-    captures all logs including uvicorn logs.
-    """
-    global _web_handler_attached
-    
-    if _web_handler_attached:
-        return  # Already attached, don't add again
-    
-    # Only attach to root logger - handlers propagate to child loggers
-    root_logger = logging.getLogger()
-    
-    # Double-check no duplicate WebLogHandlers exist
-    for handler in root_logger.handlers:
-        if isinstance(handler, WebLogHandler):
-            _web_handler_attached = True
-            logging.debug("WebLogHandler already present on root logger")
-            return
-    
-    # Add web handler
-    root_logger.addHandler(web_handler)
-    _web_handler_attached = True
-    logging.debug("WebLogHandler attached to root logger")
-
-
-# Custom uvicorn log config that preserves our formatting
-def get_uvicorn_log_config():
-    """
-    Create a uvicorn log config that uses our existing logging setup.
-
-    This prevents uvicorn from reconfiguring logging while still allowing
-    it to log properly through our configured handlers.
-    """
-    return {
-        "version": 1,
-        "disable_existing_loggers": False,  # Keep our handlers!
-        "formatters": {
-            "default": {
-                "format": format_str,
-            },
-        },
-        "handlers": {},  # Don't create any new handlers - use root logger
-        "loggers": {
-            "uvicorn": {"level": "INFO", "propagate": True},
-            "uvicorn.error": {"level": "INFO", "propagate": True},
-            "uvicorn.access": {"level": "INFO", "propagate": True},
-        },
-        "root": {
-            "level": "INFO",
-        },
-    }
 
 
 # Validate environment variables
