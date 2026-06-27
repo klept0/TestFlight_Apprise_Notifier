@@ -47,7 +47,7 @@ from utils.formatting import (
     app_name_cache,
     app_icon_cache,
 )
-from utils.notifications import send_notification_async
+from utils.notifications import send_notification_async, send_test_notification
 from utils.masking import mask_secret
 from utils.service_icons import get_apprise_service_icon
 from utils.web_logging import get_recent_logs, log_entries, log_entries_lock
@@ -414,6 +414,39 @@ async def remove_url(url_id: str):
         raise HTTPException(status_code=404, detail=message)
 
     return {"message": message, "apprise_urls": _apprise_urls_payload()}
+
+
+@router.post("/api/test-notification")
+async def test_notification():
+    """Send a one-off test notification to the configured Apprise destinations.
+
+    Does not perform any TestFlight checks or modify runtime state.
+    """
+    logging.info("Test notification requested")
+    urls = get_current_apprise_urls()
+    if not urls:
+        logging.warning("Test notification failed: no destinations configured")
+        raise HTTPException(
+            status_code=400, detail="No notification destinations are configured"
+        )
+
+    sent, failed = await send_test_notification(urls)
+    total = sent + failed
+
+    if sent > 0:
+        logging.info("Test notification succeeded (%d/%d destinations)", sent, total)
+        return {
+            "success": True,
+            "sent": sent,
+            "failed": failed,
+            "total": total,
+            "message": f"Test notification sent to {sent} of {total} destination(s).",
+        }
+
+    logging.error("Test notification failed: all %d destination(s) failed", total)
+    raise HTTPException(
+        status_code=502, detail="All notification attempts failed"
+    )
 
 
 @router.post("/api/control/stop")

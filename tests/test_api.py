@@ -146,6 +146,55 @@ def test_apprise_urls_response_exposes_no_raw_url(client, monkeypatch):
     assert "TopSecretToken12345" not in json.dumps(body)
 
 
+# ── Test notification (Runbook 2) ───────────────────────────────
+def test_test_notification_success(client, monkeypatch):
+    async def fake_send(urls):
+        return (1, 0)  # one delivered
+
+    monkeypatch.setattr(routes, "send_test_notification", fake_send)
+    saved = list(state.current_apprise_urls)
+    try:
+        state.current_apprise_urls[:] = ["json://localhost/"]
+        r = client.post("/api/test-notification")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["success"] is True
+        assert body["sent"] == 1
+    finally:
+        state.current_apprise_urls[:] = saved
+
+
+def test_test_notification_all_fail(client, monkeypatch):
+    async def fake_send(urls):
+        return (0, 2)  # every destination failed
+
+    monkeypatch.setattr(routes, "send_test_notification", fake_send)
+    saved = list(state.current_apprise_urls)
+    try:
+        state.current_apprise_urls[:] = ["json://a/", "json://b/"]
+        r = client.post("/api/test-notification")
+        assert r.status_code == 502
+        assert "fail" in r.json()["detail"].lower()
+    finally:
+        state.current_apprise_urls[:] = saved
+
+
+def test_test_notification_no_destinations(client):
+    saved = list(state.current_apprise_urls)
+    try:
+        state.current_apprise_urls[:] = []
+        r = client.post("/api/test-notification")
+        assert r.status_code == 400
+    finally:
+        state.current_apprise_urls[:] = saved
+
+
+def test_test_notification_requires_csrf():
+    # State-changing POST with no CSRF token is rejected (authorization).
+    c = TestClient(main.app)
+    assert c.post("/api/test-notification").status_code == 403
+
+
 # ── Hardened .env save (Issue 2) ────────────────────────────────
 def test_save_config_atomic_with_backup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

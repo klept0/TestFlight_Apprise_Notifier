@@ -14,6 +14,7 @@ A Python-based monitoring tool that continuously checks Apple TestFlight beta av
 - ⚡ **High Performance** – Async HTTP requests with connection pooling and caching
 - 🔄 **Status Tracking** – Detects status changes (Open, Full, Closed) and notifies accordingly
 - 💓 **Heartbeat Notifications** – Optional periodic notifications to confirm the service is running
+- 🧪 **Test Notification** – Send a one-off test message to your configured destinations from the dashboard
 - 🎨 **Dark/Light Theme** – Responsive web dashboard with persistent theme preference
 - 📝 **Live Config Editor** – Edit your `.env` file and restart the service directly from the dashboard
 - 🔍 **Update Checker** – Optional GitHub version checks with toggle in the dashboard
@@ -205,7 +206,7 @@ Once running, access the web dashboard at `http://localhost:8080` (or your confi
 
 - **Dashboard** – Live status of all monitored betas, uptime, metrics, and service controls (start/stop/restart)
 - **TestFlight IDs** – Add or remove IDs to monitor without restarting
-- **Apprise URLs** – Add or remove notification endpoints on the fly
+- **Apprise URLs** – Add or remove notification endpoints on the fly, and send a test notification to confirm they work
 - **Settings** – Toggle options (update checker, always-notify), change the default theme, and edit the `.env` file directly with the built-in editor
 - **Logs** – Filterable live log viewer with level and line-count controls
 
@@ -230,6 +231,7 @@ Interactive OpenAPI docs are available at `/docs`.
 | `/api/config` | GET / POST | Read or write the `.env` configuration file |
 | `/api/control/stop` | POST | Stop the service |
 | `/api/control/restart` | POST | Restart the service (re-executes in place) |
+| `/api/test-notification` | POST | Send a test notification to the configured Apprise destinations |
 
 ## Dependencies
 
