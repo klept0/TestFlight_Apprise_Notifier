@@ -595,22 +595,34 @@ async def save_config(content: str = Form(...)):
 
 @router.post("/api/config/restore")
 async def restore_config():
-    """Restore .env file from backup."""
+    """Restore .env from backup using a hardened atomic write."""
+    import tempfile
+
+    env_path = ".env"
+    backup_path = f"{env_path}.backup"
     try:
-        env_path = ".env"
-        backup_path = f"{env_path}.backup"
-        
         if not os.path.exists(backup_path):
             raise HTTPException(status_code=404, detail="No backup file found")
-        
+
         with open(backup_path, "r") as f:
             backup_content = f.read()
-        
-        with open(env_path, "w") as f:
-            f.write(backup_content)
-        
+
+        # Write to a temp file in the same directory, fsync, then atomically
+        # replace .env. No new backup is taken here: .env.backup is the source.
+        env_dir = os.path.dirname(os.path.abspath(env_path)) or "."
+        fd, tmp_path = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=env_dir)
+        try:
+            with os.fdopen(fd, "w") as tmp:
+                tmp.write(backup_content)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp_path, env_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
         logging.info("Configuration restored from backup via web interface")
-        
+
         return {
             "success": True,
             "message": "Configuration restored from backup. Restart the application for changes to take effect.",

@@ -239,6 +239,37 @@ def test_save_config_aborts_on_null_byte(tmp_path, monkeypatch):
     assert env.read_text() == original
 
 
+# ── Hardened .env restore ───────────────────────────────────────
+def test_restore_config_atomic(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("ID_LIST=current,\n")
+    restored = "ID_LIST=restored,\nAPPRISE_URL=discord://a/b,\n"
+    backup = tmp_path / ".env.backup"
+    backup.write_text(restored)
+
+    res = asyncio.run(routes.restore_config())
+    assert res["success"] is True
+    # .env now matches the backup exactly.
+    assert env.read_text() == restored
+    assert "restored" in res["content"]
+    # The backup (the source) is left untouched, and no temp files remain.
+    assert backup.read_text() == restored
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_restore_config_no_backup_404(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = "ID_LIST=keep,\n"
+    (tmp_path / ".env").write_text(original)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.restore_config())
+    assert exc.value.status_code == 404
+    # .env untouched when there is no backup to restore.
+    assert (tmp_path / ".env").read_text() == original
+
+
 # ── CSRF protection ─────────────────────────────────────────────
 def test_csrf_blocks_state_change_without_token():
     # Fresh client with no CSRF cookie/header -> state change rejected.
