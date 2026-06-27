@@ -13,6 +13,7 @@ A Python-based monitoring tool that continuously checks Apple TestFlight beta av
 - 🐳 **Docker Support** – Easy deployment with Docker and Docker Compose
 - ⚡ **High Performance** – Async HTTP requests with connection pooling and caching
 - 🔄 **Status Tracking** – Detects status changes (Open, Full, Closed) and notifies accordingly
+- 💾 **State Persistence** – Saves runtime state to disk and resumes after a restart without re-sending duplicate notifications
 - 💓 **Heartbeat Notifications** – Optional periodic notifications to confirm the service is running
 - 🧪 **Test Notification** – Send a one-off test message to your configured destinations from the dashboard
 - 🎨 **Dark/Light Theme** – Responsive web dashboard with persistent theme preference
@@ -112,6 +113,7 @@ All configuration is done through environment variables in the `.env` file. You 
 | `GITHUB_REPO` | `klept0/TestFlight_Apprise_Notifier` | GitHub repo to check for updates |
 | `GITHUB_BRANCH` | `main` | Branch to compare against for update checks |
 | `UI_THEME` | `dark` | Default web dashboard theme (`dark` or `light`) |
+| `STATE_FILE` | `data/state.json` | Where runtime state is persisted (per-ID status, timestamps, failure counts, cached app name/icon) so monitoring resumes cleanly after a restart |
 | `FASTAPI_HOST` | `127.0.0.1` | Web dashboard bind address (set `0.0.0.0` to expose it) |
 | `FASTAPI_PORT` | random `8000–9000` | Web dashboard port (set explicitly to keep it stable) |
 | `WEB_USERNAME` | _(unset)_ | Username for optional HTTP Basic auth on the dashboard/API |
