@@ -1,5 +1,7 @@
 # TestFlight Apprise Notifier
 
+[![CI](https://github.com/klept0/TestFlight_Apprise_Notifier/actions/workflows/ci.yml/badge.svg)](https://github.com/klept0/TestFlight_Apprise_Notifier/actions/workflows/ci.yml)
+
 A Python-based monitoring tool that continuously checks Apple TestFlight beta availability and sends notifications through [Apprise](https://github.com/caronc/apprise) when slots become available.
 
 ## Features

@@ -5,8 +5,7 @@ Run with: pytest tests/test_testflight.py -v
 """
 
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, AsyncMock
 from utils.testflight import (
     TestFlightStatus,
     check_testflight_status,
