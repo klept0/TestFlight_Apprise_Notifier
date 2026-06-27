@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import uvicorn
 import threading
@@ -62,6 +63,31 @@ enable_status_cache(ttl_seconds=300)
 # re-read when the module is reloaded, e.g. in tests.
 WEB_USERNAME = os.getenv("WEB_USERNAME", "").strip()
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
+
+# Hosts considered local, where authentication is optional. Any other bind
+# address is treated as publicly reachable and requires credentials.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def validate_auth_config():
+    """Require dashboard authentication when bound to a non-loopback host.
+
+    If FASTAPI_HOST is a public address (anything other than localhost), both
+    WEB_USERNAME and WEB_PASSWORD must be set. When they are missing, log an
+    error and exit with status 1 rather than starting an unprotected,
+    publicly reachable dashboard.
+    """
+    host = os.getenv("FASTAPI_HOST", "127.0.0.1")
+    if host in LOOPBACK_HOSTS:
+        return
+    if not (WEB_USERNAME and WEB_PASSWORD):
+        logging.error(
+            "Refusing to start: FASTAPI_HOST=%s exposes the dashboard publicly, "
+            "but WEB_USERNAME and WEB_PASSWORD are not set. Set both to require "
+            "a login, or bind to 127.0.0.1.",
+            host,
+        )
+        sys.exit(1)
 
 
 # Status tracking for change notifications
@@ -357,16 +383,6 @@ async def start_fastapi():
         default_host = os.getenv("FASTAPI_HOST", "127.0.0.1")
         default_port = int(os.getenv("FASTAPI_PORT", random.randint(8000, 9000)))
 
-        if default_host not in ("127.0.0.1", "localhost", "::1") and not (
-            WEB_USERNAME and WEB_PASSWORD
-        ):
-            logging.warning(
-                "Web dashboard is bound to %s without WEB_USERNAME/WEB_PASSWORD "
-                "set. Anyone who can reach this port can read your .env secrets "
-                "and control the process. Set credentials to enable auth.",
-                default_host,
-            )
-
         logging.info(f"Starting FastAPI server on {default_host}:{default_port}")
 
         config = uvicorn.Config(
@@ -404,6 +420,7 @@ async def start_fastapi():
 
 def main():
     """Main function to start all tasks."""
+    validate_auth_config()
     try:
         asyncio.run(async_main())
     except KeyboardInterrupt:

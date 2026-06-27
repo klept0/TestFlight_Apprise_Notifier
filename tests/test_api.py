@@ -137,3 +137,32 @@ def test_auth_enforced_when_configured(monkeypatch):
         monkeypatch.delenv("WEB_USERNAME", raising=False)
         monkeypatch.delenv("WEB_PASSWORD", raising=False)
         importlib.reload(main)
+
+
+# ── Auth required on a public bind address ──────────────────────
+def test_public_host_without_credentials_exits(monkeypatch):
+    """A non-loopback host with no credentials must abort startup (exit 1)."""
+    monkeypatch.setenv("FASTAPI_HOST", "0.0.0.0")
+    monkeypatch.setattr(main, "WEB_USERNAME", "")
+    monkeypatch.setattr(main, "WEB_PASSWORD", "")
+    with pytest.raises(SystemExit) as exc:
+        main.validate_auth_config()
+    assert exc.value.code == 1
+
+
+def test_public_host_with_credentials_ok(monkeypatch):
+    """A non-loopback host is allowed when both credentials are set."""
+    monkeypatch.setenv("FASTAPI_HOST", "0.0.0.0")
+    monkeypatch.setattr(main, "WEB_USERNAME", "user")
+    monkeypatch.setattr(main, "WEB_PASSWORD", "pass")
+    # Should not raise.
+    main.validate_auth_config()
+
+
+def test_loopback_host_without_credentials_ok(monkeypatch):
+    """Auth is optional on localhost, even with no credentials."""
+    monkeypatch.setattr(main, "WEB_USERNAME", "")
+    monkeypatch.setattr(main, "WEB_PASSWORD", "")
+    for host in ("127.0.0.1", "localhost", "::1"):
+        monkeypatch.setenv("FASTAPI_HOST", host)
+        main.validate_auth_config()  # should not raise

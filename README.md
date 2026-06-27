@@ -118,7 +118,7 @@ All configuration is done through environment variables in the `.env` file. You 
 
 > **Note:** `UI_THEME` sets the server-side default for new visitors. Each browser can override it independently via the theme toggle in the dashboard — the preference is saved in `localStorage`.
 
-> **🔒 Security:** The dashboard can read/write your `.env` (which contains your notification secrets) and stop/restart the process. It binds to `127.0.0.1` by default for that reason. If you expose it (`FASTAPI_HOST=0.0.0.0`, e.g. in Docker), set `WEB_USERNAME` and `WEB_PASSWORD` to require a login. `/api/health` stays open for health checks.
+> **🔒 Security:** The dashboard can read/write your `.env` (which contains your notification secrets) and stop/restart the process. It binds to `127.0.0.1` by default for that reason. If you expose it on a non-loopback address (`FASTAPI_HOST=0.0.0.0`, e.g. in Docker), **authentication is required**: `WEB_USERNAME` and `WEB_PASSWORD` must both be set, otherwise the app refuses to start and exits with code `1`. On `127.0.0.1`/`localhost` auth is optional. `/api/health` stays open for health checks.
 
 ### Example `.env` File
 
