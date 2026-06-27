@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+import app_config
 import config_io
 import state
 from state import (
@@ -185,6 +186,7 @@ async def get_testflight_ids_details():
     details = []
 
     for tf_id in current_ids:
+        settings = app_config.get(tf_id)
         try:
             # Get app name (with caching)
             app_name = await get_app_name(TESTFLIGHT_URL, tf_id)
@@ -192,22 +194,47 @@ async def get_testflight_ids_details():
             # Get app icon URL (with caching)
             icon_url = await get_app_icon(TESTFLIGHT_URL, tf_id)
 
+            # A friendly name overrides the detected name for display.
+            display_name = settings["friendly_name"] or app_name
             details.append(
                 {
                     "id": tf_id,
                     "app_name": app_name if app_name != tf_id else None,
-                    "display_name": app_name,
+                    "display_name": display_name,
                     "icon_url": icon_url,
+                    "settings": settings,
                 }
             )
         except Exception as e:
             logging.warning(f"Failed to get details for TestFlight ID {tf_id}: {e}")
-            # Fallback to just the ID
+            # Fallback to just the ID (still report its settings)
             details.append(
-                {"id": tf_id, "app_name": None, "display_name": tf_id, "icon_url": None}
+                {
+                    "id": tf_id,
+                    "app_name": None,
+                    "display_name": settings["friendly_name"] or tf_id,
+                    "icon_url": None,
+                    "settings": settings,
+                }
             )
 
     return {"testflight_ids": details}
+
+
+@router.post("/api/testflight-ids/{tf_id}/settings")
+async def update_app_settings(tf_id: str, request: Request):
+    """Update per-app settings for a monitored TestFlight ID (CSRF-protected)."""
+    if tf_id not in get_current_id_list():
+        raise HTTPException(status_code=404, detail="TestFlight ID not found")
+    try:
+        partial = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed JSON")
+    ok, message = app_config.update(tf_id, partial)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    logging.info("Updated per-app settings for %s", tf_id)
+    return {"success": True, "settings": app_config.get(tf_id)}
 
 
 @router.post("/api/testflight-ids/validate")

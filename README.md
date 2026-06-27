@@ -15,6 +15,7 @@ A Python-based monitoring tool that continuously checks Apple TestFlight beta av
 - 🔄 **Status Tracking** – Detects status changes (Open, Full, Closed) and notifies accordingly
 - 💾 **State Persistence** – Saves runtime state to disk and resumes after a restart without re-sending duplicate notifications
 - 📦 **Config Import/Export** – Export your monitored IDs and settings to a `config.json` and import them back (secrets excluded by default)
+- 🎛️ **Per-App Settings** – Enable/disable, friendly name, check-interval override, and per-status notification toggles for each monitored ID
 - 💓 **Heartbeat Notifications** – Optional periodic notifications to confirm the service is running
 - 🧪 **Test Notification** – Send a one-off test message to your configured destinations from the dashboard
 - 🎨 **Dark/Light Theme** – Responsive web dashboard with persistent theme preference
@@ -117,6 +118,7 @@ All configuration is done through environment variables in the `.env` file. You 
 | `GITHUB_BRANCH` | `main` | Branch to compare against for update checks |
 | `UI_THEME` | `dark` | Default web dashboard theme (`dark` or `light`) |
 | `STATE_FILE` | `data/state.json` | Where runtime state is persisted (per-ID status, timestamps, failure counts, cached app name/icon) so monitoring resumes cleanly after a restart |
+| `APP_CONFIG_FILE` | `data/app_config.json` | Where per-app configuration (enabled, friendly name, check-interval override, notification toggles) is stored — separate from the runtime state file |
 | `FASTAPI_HOST` | `127.0.0.1` | Web dashboard bind address (set `0.0.0.0` to expose it) |
 | `FASTAPI_PORT` | random `8000–9000` | Web dashboard port (set explicitly to keep it stable) |
 | `WEB_USERNAME` | _(unset)_ | Username for optional HTTP Basic auth on the dashboard/API |
@@ -210,7 +212,7 @@ Once running, access the web dashboard at `http://localhost:8080` (or your confi
 ### Dashboard Sections
 
 - **Dashboard** – Live status of all monitored betas, uptime, metrics, and service controls (start/stop/restart)
-- **TestFlight IDs** – Add or remove IDs to monitor without restarting
+- **TestFlight IDs** – Add or remove IDs to monitor without restarting, and configure each app individually (enable/disable, friendly name, check-interval override, per-status notification toggles)
 - **Apprise URLs** – Add or remove notification endpoints on the fly, and send a test notification to confirm they work
 - **Settings** – Toggle options (update checker, always-notify), change the default theme, edit the `.env` file directly with the built-in editor, and import/export your configuration as `config.json`
 - **Logs** – Filterable live log viewer with level and line-count controls
@@ -228,7 +230,8 @@ Interactive OpenAPI docs are available at `/docs`.
 | `/api/logs` | GET | Recent log entries (`?limit=` 1–1000) |
 | `/api/updates` | GET | Check GitHub for a newer version (`?force=true` to bypass cache) |
 | `/api/testflight-ids` | GET / POST | List or add a monitored TestFlight ID |
-| `/api/testflight-ids/details` | GET | Monitored IDs with app names and icons |
+| `/api/testflight-ids/details` | GET | Monitored IDs with app names, icons, and per-app settings |
+| `/api/testflight-ids/{id}/settings` | POST | Update per-app settings (enabled, friendly name, interval, notify toggles) |
 | `/api/testflight-ids/{id}` | DELETE | Remove a TestFlight ID |
 | `/api/testflight-ids/batch` | POST | Add/remove multiple IDs at once |
 | `/api/apprise-urls` | GET / POST | List or add an Apprise notification URL |

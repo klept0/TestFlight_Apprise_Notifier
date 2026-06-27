@@ -9,6 +9,7 @@ import random
 import secrets
 import time
 import persistence
+import app_config
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
@@ -114,6 +115,9 @@ _failure_count: Dict[str, int] = {}  # tf_id -> consecutive failures
 _last_failure_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
 _next_check_ts: Dict[str, float] = {}  # tf_id -> earliest epoch seconds to retry
 _backoff_delay: Dict[str, float] = {}  # tf_id -> current backoff delay (seconds)
+
+# Last time each ID was checked, for honoring per-app check-interval overrides.
+_last_check_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
 
 
 def _record_failure(tf_id: str) -> float:
@@ -433,6 +437,10 @@ async def fetch_testflight_status(session, tf_id):
         if not app_name:
             app_name = await get_app_name(TESTFLIGHT_URL, tf_id)
 
+        # Per-app settings; a friendly name overrides the detected name.
+        settings = app_config.get(tf_id)
+        display_name = settings["friendly_name"] or app_name
+
         # Get current and previous status (a successful check clears backoff)
         current_status = result["status"]
         previous_status = _record_success(tf_id, current_status)
@@ -443,47 +451,61 @@ async def fetch_testflight_status(session, tf_id):
 
         # Handle different status types
         if result["status"] == TestFlightStatus.FULL:
-            logging.info(f"200 - {app_name} - Beta is full")
-            # Only notify on status change to FULL (optional behavior)
-            if status_changed and previous_status == TestFlightStatus.OPEN:
+            logging.info(f"200 - {display_name} - Beta is full")
+            # Only notify on the OPEN -> FULL transition, when enabled.
+            if (
+                status_changed
+                and previous_status == TestFlightStatus.OPEN
+                and settings["notify_on_full"]
+            ):
                 should_notify = True
 
         elif result["status"] == TestFlightStatus.CLOSED:
-            logging.info(f"200 - {app_name} - Beta is closed")
-            # Don't notify for closed status
+            logging.info(f"200 - {display_name} - Beta is closed")
+            # Closed notifications are opt-in (default off): notify only on the
+            # transition into CLOSED when enabled.
+            if (
+                status_changed
+                and previous_status not in (None, TestFlightStatus.CLOSED)
+                and settings["notify_on_closed"]
+            ):
+                should_notify = True
 
         elif result["status"] == TestFlightStatus.OPEN:
-            # Decide notification policy for OPEN status
-            with _open_notified_lock:
-                already_notified = _open_notified.get(tf_id, False)
+            if not settings["notify_on_open"]:
+                logging.info(f"200 - {display_name} - Beta is OPEN (open notifications disabled)")
+            else:
+                # Decide notification policy for OPEN status
+                with _open_notified_lock:
+                    already_notified = _open_notified.get(tf_id, False)
 
-                if ALWAYS_NOTIFY_OPEN:
-                    should_notify = True
-                    logging.info(f"200 - {app_name} - Beta is OPEN (forced notification mode)")
-                elif not already_notified:
-                    # First ever OPEN notification for this TestFlight ID
-                    should_notify = True
-                    logging.info(
-                        f"200 - {app_name} - Beta is OPEN! "
-                        f"(changed from {previous_status.value if previous_status else 'unknown'})"
-                    )
-                elif previous_status is None or previous_status != TestFlightStatus.OPEN:
-                    # Status transitioned into OPEN from another state
-                    should_notify = True
-                    logging.info(
-                        f"200 - {app_name} - Beta is OPEN! (status change from {previous_status.value if previous_status else 'unknown'})"
-                    )
-                else:
-                    logging.info(f"200 - {app_name} - Beta is still open (no notification)")
+                    if ALWAYS_NOTIFY_OPEN:
+                        should_notify = True
+                        logging.info(f"200 - {display_name} - Beta is OPEN (forced notification mode)")
+                    elif not already_notified:
+                        # First ever OPEN notification for this TestFlight ID
+                        should_notify = True
+                        logging.info(
+                            f"200 - {display_name} - Beta is OPEN! "
+                            f"(changed from {previous_status.value if previous_status else 'unknown'})"
+                        )
+                    elif previous_status is None or previous_status != TestFlightStatus.OPEN:
+                        # Status transitioned into OPEN from another state
+                        should_notify = True
+                        logging.info(
+                            f"200 - {display_name} - Beta is OPEN! (status change from {previous_status.value if previous_status else 'unknown'})"
+                        )
+                    else:
+                        logging.info(f"200 - {display_name} - Beta is still open (no notification)")
 
-                if should_notify:
-                    _open_notified[tf_id] = True
+                    if should_notify:
+                        _open_notified[tf_id] = True
 
         else:
             # Unknown status - log for investigation with more details
             raw_text = result.get("raw_text", "N/A")
             logging.warning(
-                f"200 - {app_name} - UNKNOWN status detected. "
+                f"200 - {display_name} - UNKNOWN status detected. "
                 f"Full raw text (first 200 chars): '{raw_text[:200]}' - "
                 f"Please check the TestFlight page and report this pattern "
                 f"so we can add it to STATUS_PATTERNS for proper detection."
@@ -491,7 +513,15 @@ async def fetch_testflight_status(session, tf_id):
 
         # Send notification if status changed to something noteworthy
         if should_notify:
-            notify_msg = await format_notification_link(TESTFLIGHT_URL, tf_id)
+            if current_status == TestFlightStatus.CLOSED:
+                notify_msg = (
+                    f"{display_name} beta is now closed: "
+                    f"{format_link(TESTFLIGHT_URL, tf_id)}"
+                )
+            else:
+                notify_msg = await format_notification_link(
+                    TESTFLIGHT_URL, tf_id, name_override=settings["friendly_name"]
+                )
             icon_url = await get_app_icon(TESTFLIGHT_URL, tf_id)
             # Use stock TestFlight icon if app icon is unavailable
             if not icon_url or icon_url == tf_id:
@@ -500,7 +530,7 @@ async def fetch_testflight_status(session, tf_id):
             await send_notification_async(notify_msg, apobj, icon_url)
             with _status_lock:
                 _last_notification_ts[tf_id] = time.time()
-            logging.info(f"Notification sent for {app_name}")
+            logging.info(f"Notification sent for {display_name}")
 
     except Exception as e:
         _record_failure(tf_id)
@@ -509,16 +539,34 @@ async def fetch_testflight_status(session, tf_id):
 
 
 async def watch():
-    """Check all TestFlight links that are not in retry cooldown."""
+    """Check enabled TestFlight links that are eligible this cycle.
+
+    Skips disabled apps, apps still in retry cooldown, and apps whose per-app
+    check-interval override has not yet elapsed. The rest are checked normally
+    so one broken or throttled ID can't delay or starve the others.
+    """
     try:
         current_ids = get_current_id_list()
         now = time.time()
-        # Skip only the IDs still in backoff; the rest are checked normally so
-        # one broken ID can't delay or starve the others.
-        eligible = [tf for tf in current_ids if not _is_in_cooldown(tf, now)]
+        eligible = []
+        for tf_id in current_ids:
+            settings = app_config.get(tf_id)
+            if not settings["enabled"]:
+                continue
+            if _is_in_cooldown(tf_id, now):
+                continue
+            interval = settings["check_interval_seconds"]
+            if interval and (now - _last_check_ts.get(tf_id, 0.0)) < interval:
+                continue
+            eligible.append(tf_id)
+
         skipped = len(current_ids) - len(eligible)
         if skipped:
-            logging.debug("Skipping %d TestFlight ID(s) in retry cooldown", skipped)
+            logging.debug("Skipping %d TestFlight ID(s) (disabled/cooldown/interval)", skipped)
+
+        for tf_id in eligible:
+            _last_check_ts[tf_id] = now
+
         session = await get_http_session()
         tasks = [fetch_testflight_status(session, tf_id) for tf_id in eligible]
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -642,6 +690,9 @@ async def async_main():
         # Register signal handlers on the running loop so SIGTERM (e.g.
         # `docker stop`) triggers a graceful shutdown.
         install_signal_handlers()
+
+        # Load per-app configuration (enabled, friendly names, toggles, etc.).
+        app_config.load_from_disk()
 
         # Restore persisted runtime state before monitoring starts so we resume
         # without re-sending duplicate notifications, then (re)create the file.

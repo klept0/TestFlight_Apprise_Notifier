@@ -66,7 +66,13 @@ def test_export_excludes_runtime_state(client):
         "icon_url",
     ):
         assert runtime_key not in blob
-    assert set(body) <= {"version", "testflight_ids", "settings", "notifications"}
+    assert set(body) <= {
+        "version",
+        "testflight_ids",
+        "settings",
+        "app_settings",
+        "notifications",
+    }
 
 
 # ── Import validation (no writes) ───────────────────────────────

@@ -257,22 +257,76 @@ function renderIds(ids) {
     return;
   }
   container.innerHTML = ids.map(item => {
+    const s = item.settings || {};
     const name = item.display_name || item.id;
     const hasSub = item.app_name && item.app_name !== item.id;
+    const disabled = s.enabled === false;
     const icon = item.icon_url
       ? `<img class="item-icon" src="${escAttr(item.icon_url)}" alt="" onerror="this.style.display='none'">`
       : `<div class="item-icon-placeholder">📱</div>`;
-    return `<div class="item-row">
+    const pid = `app-settings-${item.id}`;
+    const chk = (f, def) => ((s[f] !== undefined ? s[f] : def) ? 'checked' : '');
+    return `<div class="item-row"${disabled ? ' style="opacity:.55"' : ''}>
       ${icon}
       <div class="item-info">
-        <div class="item-name">${escHtml(name)}</div>
+        <div class="item-name">${escHtml(name)}${disabled ? ' <span class="text-muted text-sm">(disabled)</span>' : ''}</div>
         ${hasSub ? `<div class="item-sub">${escHtml(item.id)}</div>` : ''}
       </div>
       <div class="item-actions">
+        <button class="btn btn-sm btn-secondary" onclick="toggleAppSettings('${escAttr(item.id)}')">Settings</button>
         <button class="btn btn-sm btn-danger" onclick="removeId('${escAttr(item.id)}')" aria-label="Remove ${escAttr(name)}">Remove</button>
       </div>
+    </div>
+    <div id="${pid}" class="hidden" style="padding:10px 14px 14px; border-bottom:1px solid var(--border); display:grid; gap:8px;">
+      <label><input type="checkbox" data-f="enabled" ${chk('enabled', true)}> Enabled</label>
+      <label style="display:flex; gap:8px; align-items:center;">Friendly name
+        <input type="text" class="input" data-f="friendly_name" value="${escAttr(s.friendly_name || '')}" placeholder="(use detected name)" style="flex:1;"></label>
+      <label style="display:flex; gap:8px; align-items:center;">Check interval (s)
+        <input type="number" min="1" class="input" data-f="check_interval_seconds" value="${s.check_interval_seconds != null ? s.check_interval_seconds : ''}" placeholder="global" style="width:120px;"></label>
+      <label><input type="checkbox" data-f="notify_on_open" ${chk('notify_on_open', true)}> Notify on Open</label>
+      <label><input type="checkbox" data-f="notify_on_full" ${chk('notify_on_full', true)}> Notify on Full</label>
+      <label><input type="checkbox" data-f="notify_on_closed" ${chk('notify_on_closed', false)}> Notify on Closed</label>
+      <div class="btn-group">
+        <button class="btn btn-sm btn-primary" onclick="saveAppSettings('${escAttr(item.id)}')">Save</button>
+      </div>
+      <div class="status-msg" id="${pid}-status" role="status" aria-live="polite"></div>
     </div>`;
   }).join('');
+}
+
+function toggleAppSettings(id) {
+  const panel = document.getElementById(`app-settings-${id}`);
+  if (panel) panel.classList.toggle('hidden');
+}
+
+async function saveAppSettings(id) {
+  const panel     = document.getElementById(`app-settings-${id}`);
+  const statusDiv = document.getElementById(`app-settings-${id}-status`);
+  if (!panel) return;
+  const body = {};
+  panel.querySelectorAll('[data-f]').forEach(el => {
+    const f = el.dataset.f;
+    if (el.type === 'checkbox') {
+      body[f] = el.checked;
+    } else if (f === 'check_interval_seconds') {
+      body[f] = el.value.trim() === '' ? null : parseInt(el.value, 10);
+    } else {
+      body[f] = el.value.trim() === '' ? null : el.value.trim();
+    }
+  });
+  setStatus(statusDiv, 'Saving…', 'info');
+  try {
+    const res  = await fetch(`/api/testflight-ids/${encodeURIComponent(id)}/settings`, jsonPost(body));
+    const data = await res.json();
+    if (res.ok) {
+      showToast('App settings saved', 'success');
+      refreshIds();  // re-render to reflect disabled state / friendly name
+    } else {
+      setStatus(statusDiv, data.detail || 'Save failed.', 'error');
+    }
+  } catch (e) {
+    setStatus(statusDiv, `Error: ${e.message}`, 'error');
+  }
 }
 
 async function validateAndAddId() {
