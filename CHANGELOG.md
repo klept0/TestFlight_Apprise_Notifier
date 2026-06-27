@@ -19,6 +19,9 @@
 - **Module split** - Began breaking up the `main.py` monolith: extracted the metrics collector into `utils/metrics.py`, the Apprise service-icon lookup into `utils/service_icons.py`, the logging setup / in-memory log buffer into `utils/web_logging.py`, and the environment/configuration parsing into `config.py` (behaviour unchanged), trimming `main.py` by ~480 lines.
 - **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations, the unused circuit-breaker helpers (`is_circuit_breaker_open` / `record_request_*`, never wired into the request path — the `/api/health` `circuit_breaker` field is gone), and the unused `check_multiple_testflight_urls` utility.
 
+### Tests
+- **API coverage** - Added `tests/test_api.py` (TestClient) covering the health/metrics/list endpoints, log-limit validation, the add/remove ID and URL flows, and the optional HTTP Basic auth.
+
 ---
 
 ## v1.0.5e - October 3, 2025
