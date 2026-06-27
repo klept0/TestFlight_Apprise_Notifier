@@ -2,8 +2,21 @@
 <html lang="en" data-theme="{{ ui_theme }}">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Dashboard for monitoring TestFlight beta availability and sending Apprise notifications.">
   <title>TestFlight Apprise Notifier</title>
+
+  <!-- Mobile / PWA -->
+  <meta name="theme-color" id="theme-color-meta" content="{% if ui_theme == 'light' %}#f3f4f6{% else %}#0d1117{% endif %}">
+  <meta name="color-scheme" content="dark light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TF Notifier">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>

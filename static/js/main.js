@@ -15,6 +15,9 @@ function initTheme() {
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('tf-theme', theme);
+  // Keep the mobile browser chrome (status/address bar) matching the theme.
+  const meta = document.getElementById('theme-color-meta');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0d1117' : '#f3f4f6');
   const moon = document.getElementById('theme-icon-moon');
   const sun  = document.getElementById('theme-icon-sun');
   if (theme === 'dark') {
