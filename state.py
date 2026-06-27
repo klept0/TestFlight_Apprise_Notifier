@@ -123,10 +123,32 @@ def get_current_apprise_urls():
 
 
 def update_env_file(key: str, new_values: list[str]):
-    """Safely update the .env file with new values for a given key."""
+    """Safely update the .env file with new values for a given key.
+
+    Validates inputs first, preserves all other lines (comments and ordering),
+    writes to a temporary file in the same directory, backs up the previous
+    version to ``.env.bak``, and atomically replaces the original. Returns
+    False without modifying the file if validation fails.
+    """
+    import re
+    import shutil
+    import tempfile
+
+    env_path = ".env"
+    backup_path = ".env.bak"
+
+    # Validate before writing; abort (without touching the file) on failure.
+    if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+        logging.error("Refusing to update .env: invalid key %r", key)
+        return False
+    if not isinstance(new_values, list) or any(
+        not isinstance(v, str) or "\n" in v or "\r" in v for v in new_values
+    ):
+        logging.error("Refusing to update .env: values must be newline-free strings")
+        return False
+
     try:
         # Read current .env content
-        env_path = ".env"
         if not os.path.exists(env_path):
             logging.error("Cannot update .env file: file does not exist")
             return False
@@ -177,9 +199,20 @@ def update_env_file(key: str, new_values: list[str]):
             else:
                 lines.append(f"{key}=\n")
 
-        # Write back to file atomically
-        with open(env_path, "w") as f:
-            f.writelines(lines)
+        # Write atomically: temp file in the same directory, fsync, back up the
+        # previous version, then os.replace() onto the original.
+        env_dir = os.path.dirname(os.path.abspath(env_path)) or "."
+        fd, tmp_path = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=env_dir)
+        try:
+            with os.fdopen(fd, "w") as tmp:
+                tmp.writelines(lines)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            shutil.copy2(env_path, backup_path)
+            os.replace(tmp_path, env_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
         logging.info(f"Updated .env file with {len(new_values)} {key} values")
         return True
