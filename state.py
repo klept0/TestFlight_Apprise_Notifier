@@ -8,7 +8,6 @@ import them back (no FastAPI here).
 """
 
 import os
-import re
 import asyncio
 import threading
 import time
@@ -59,6 +58,9 @@ current_apprise_urls = APPRISE_URLS.copy()  # Thread-safe copy for monitoring
 
 # Graceful shutdown (cross-platform compatibility)
 shutdown_event = asyncio.Event()
+
+# Timestamp used for uptime reporting in the dashboard.
+app_start_time = datetime.now()
 
 
 def http_session_active() -> bool:

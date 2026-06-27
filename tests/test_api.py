@@ -23,6 +23,7 @@ os.environ.pop("WEB_PASSWORD", None)
 
 import main  # noqa: E402
 import state  # noqa: E402
+import routes  # noqa: E402
 
 
 @pytest.fixture
@@ -79,7 +80,7 @@ def test_add_and_remove_testflight_id(client, monkeypatch):
     async def fake_validate(tf_id):
         return True, "ok"
 
-    monkeypatch.setattr(main, "validate_testflight_id", fake_validate)
+    monkeypatch.setattr(routes, "validate_testflight_id", fake_validate)
     monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
     monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
 
