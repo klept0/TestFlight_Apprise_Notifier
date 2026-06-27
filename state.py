@@ -28,6 +28,7 @@ from config import (
     TESTFLIGHT_URL,
 )
 from utils.formatting import format_datetime, format_link
+from utils.masking import mask_secret
 from utils.metrics import MetricsCollector
 from utils.notifications import send_notification, send_notification_async
 
@@ -316,7 +317,7 @@ def validate_apprise_url(url: str) -> tuple[bool, str]:
 
     except Exception as e:
         # Fallback to basic validation if Apprise validation fails
-        logging.warning(f"Apprise validation error for URL {url}: {e}")
+        logging.warning(f"Apprise validation error for URL {mask_secret(url)}: {e}")
 
         # Basic URL validation - should start with a protocol
         supported_protocols = [
@@ -527,10 +528,10 @@ def add_apprise_url(url: str) -> tuple[bool, str]:
             current_apprise_urls.append(url)
             # Add to the live Apprise object
             apobj.add(url)
-            logging.info(f"Added Apprise URL: {url}")
+            logging.info(f"Added Apprise URL: {mask_secret(url)}")
             # Send notification about the addition
             total_urls = len(current_apprise_urls)
-            msg = f"Apprise URL Added: {url} (Total: {total_urls} URLs)"
+            msg = f"Apprise URL Added: {mask_secret(url)} (Total: {total_urls} URLs)"
             send_notification(msg, apobj)
             return True, "Apprise URL added successfully"
         else:
@@ -550,10 +551,10 @@ def remove_apprise_url(url: str) -> tuple[bool, str]:
             apobj.clear()
             for remaining_url in current_apprise_urls:
                 apobj.add(remaining_url)
-            logging.info(f"Removed Apprise URL: {url}")
+            logging.info(f"Removed Apprise URL: {mask_secret(url)}")
             # Send notification about the removal
             total_urls = len(current_apprise_urls)
-            msg = f"Apprise URL Removed: {url} (Total: {total_urls} URLs)"
+            msg = f"Apprise URL Removed: {mask_secret(url)} (Total: {total_urls} URLs)"
             send_notification(msg, apobj)
             return True, "Apprise URL removed successfully"
         else:

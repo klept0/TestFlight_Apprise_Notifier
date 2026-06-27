@@ -46,6 +46,7 @@ from utils.formatting import (
     app_icon_cache,
 )
 from utils.notifications import send_notification_async
+from utils.masking import mask_secret
 from utils.service_icons import get_apprise_service_icon
 from utils.web_logging import get_recent_logs, log_entries, log_entries_lock
 
@@ -350,26 +351,9 @@ async def get_apprise_urls():
     for url in urls:
         service_info = get_apprise_service_icon(url)
 
-        # Mask sensitive parts of URL for display
-        display_url = url
-        try:
-            # Try to parse as URL to mask credentials
-            if "://" in url:
-                parts = url.split("://", 1)
-                if len(parts) == 2:
-                    scheme = parts[0]
-                    rest = parts[1]
-                    # Look for @ symbol indicating credentials
-                    if "@" in rest:
-                        # Mask everything before @
-                        after_at = rest.split("@", 1)[1]
-                        display_url = f"{scheme}://***@{after_at}"
-                    # Hide query parameters for security
-                    if "?" in display_url:
-                        display_url = display_url.split("?")[0] + "?***"
-        except Exception:
-            # If parsing fails, show abbreviated version
-            display_url = url[:30] + "..." if len(url) > 30 else url
+        # Mask credentials/tokens for display (raw value kept in `url` for
+        # removal operations only).
+        display_url = mask_secret(url)
 
         urls_with_info.append(
             {
