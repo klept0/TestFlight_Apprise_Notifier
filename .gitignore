@@ -53,3 +53,5 @@ data/.state.*.tmp
 .env.backup
 data/app_config.json
 data/.app_config.*.tmp
+data/library.json
+data/.json.*.tmp

@@ -70,6 +70,14 @@
           <span class="nav-text">Logs</span>
         </button>
       </li>
+      <li>
+        <button class="nav-item" data-section="library">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M2 5a2 2 0 012-2h3.28a1 1 0 01.948.684l.32.948a1 1 0 00.948.684H16a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/>
+          </svg>
+          <span class="nav-text">Library</span>
+        </button>
+      </li>
     </ul>
 
     <div class="sidebar-footer">
@@ -445,6 +453,40 @@
           <div id="logs-container" class="logs-container" aria-live="polite" aria-label="Application logs">
             <div class="empty-state">
               <div class="empty-state-text">Loading logs…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           Library Section
+           ═══════════════════════════════════ -->
+      <section id="section-library" class="section" aria-labelledby="title-library">
+        <div class="section-header">
+          <h2 id="title-library">Library</h2>
+          <p class="text-muted">Apps you have removed from monitoring are archived here. They are never checked and never send notifications.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>History</h3>
+            <div class="log-controls">
+              <input type="search" id="library-search" class="input" style="width:auto;" placeholder="Search…" oninput="renderLibrary()">
+              <label for="library-sort" class="sr-only">Sort by</label>
+              <select id="library-sort" class="input" style="width:auto;" onchange="renderLibrary()">
+                <option value="archived" selected>Recently archived</option>
+                <option value="name">App name</option>
+              </select>
+              <button class="btn btn-sm btn-danger" onclick="clearLibrary()">Clear All</button>
+              <button class="btn-icon" onclick="refreshLibrary()" aria-label="Refresh library" title="Refresh">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="library-list" class="item-list">
+            <div class="empty-state">
+              <div class="empty-state-icon">📚</div>
+              <div class="empty-state-text">Loading…</div>
             </div>
           </div>
         </div>

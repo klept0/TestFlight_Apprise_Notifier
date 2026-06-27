@@ -62,6 +62,7 @@ const SECTION_TITLES = {
   urls:      'Apprise URLs',
   settings:  'Settings',
   logs:      'Logs',
+  library:   'Library',
 };
 
 function navigateTo(sectionId) {
@@ -99,6 +100,7 @@ function onSectionActivated(sectionId) {
   if (sectionId === 'urls')      refreshUrls();
   if (sectionId === 'settings')  loadConfig();
   if (sectionId === 'logs')      refreshLogs();
+  if (sectionId === 'library')   refreshLibrary();
 }
 
 // Wire up nav buttons
@@ -606,6 +608,109 @@ async function importConfig(input) {
     setStatus(statusDiv, `Error: ${e.message}`, 'error');
   } finally {
     input.value = '';
+  }
+}
+
+/* ── Library (archive) ──────────────────────────────────────── */
+let _libraryData = [];
+
+async function refreshLibrary() {
+  const container = document.getElementById('library-list');
+  try {
+    const res  = await fetch('/api/library');
+    const data = await res.json();
+    _libraryData = data.history || [];
+    renderLibrary();
+  } catch (e) {
+    container.innerHTML = errorRow('Failed to load library.');
+  }
+}
+
+function renderLibrary() {
+  const container = document.getElementById('library-list');
+  const search = (document.getElementById('library-search').value || '').toLowerCase();
+  const sort   = document.getElementById('library-sort').value;
+  let items = _libraryData.slice();
+  if (search) {
+    items = items.filter(i =>
+      (i.app_name || '').toLowerCase().includes(search) ||
+      (i.id || '').toLowerCase().includes(search));
+  }
+  if (sort === 'name') {
+    items.sort((a, b) => (a.app_name || a.id || '').toLowerCase()
+      .localeCompare((b.app_name || b.id || '').toLowerCase()));
+  } else {
+    items.sort((a, b) => (b.last_archived || 0) - (a.last_archived || 0));
+  }
+  if (!items.length) {
+    container.innerHTML = emptyState('📚', search ? 'No matching archived apps' : 'No archived apps yet');
+    return;
+  }
+  container.innerHTML = items.map(item => {
+    const name   = item.app_name || item.id;
+    const icon   = item.icon_url
+      ? `<img class="item-icon" src="${escAttr(item.icon_url)}" alt="" onerror="this.style.display='none'">`
+      : `<div class="item-icon-placeholder">📱</div>`;
+    const status = item.last_status ? escHtml(item.last_status) : '—';
+    const when   = item.last_archived ? new Date(item.last_archived * 1000).toLocaleString() : '';
+    return `<div class="item-row">
+      ${icon}
+      <div class="item-info">
+        <div class="item-name">${escHtml(name)}</div>
+        <div class="item-sub">${escHtml(item.id)} · status: ${status} · archived ${escHtml(when)}</div>
+      </div>
+      <div class="item-actions">
+        <button class="btn btn-sm btn-secondary" onclick="restoreFromLibrary('${escAttr(item.id)}')">Restore</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteFromLibrary('${escAttr(item.id)}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function restoreFromLibrary(id) {
+  try {
+    const res  = await fetch(`/api/library/${encodeURIComponent(id)}/restore`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast('Restored to monitoring', 'success');
+      refreshLibrary();
+      if (typeof refreshIds === 'function') refreshIds();
+    } else {
+      showToast(data.detail || 'Restore failed.', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function deleteFromLibrary(id) {
+  try {
+    const res = await fetch(`/api/library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (res.ok) {
+      showToast('Removed from library', 'success');
+      refreshLibrary();
+    } else {
+      const data = await res.json();
+      showToast(data.detail || 'Delete failed.', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  }
+}
+
+async function clearLibrary() {
+  if (!window.confirm('Delete all archived apps from the library? This cannot be undone.')) return;
+  try {
+    const res  = await fetch('/api/library', { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Cleared ${data.removed} archived app(s)`, 'success');
+      refreshLibrary();
+    } else {
+      showToast(data.detail || 'Clear failed.', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
   }
 }
 

@@ -18,6 +18,7 @@ A Python-based monitoring tool that continuously checks Apple TestFlight beta av
 - 💾 **State Persistence** – Saves runtime state to disk and resumes after a restart without re-sending duplicate notifications
 - 📦 **Config Import/Export** – Export your monitored IDs and settings to a `config.json` and import them back (secrets excluded by default)
 - 🎛️ **Per-App Settings** – Enable/disable, friendly name, check-interval override, and per-status notification toggles for each monitored ID
+- 📚 **Library** – Apps removed from monitoring are archived (never checked, never notified); restore, delete, or clear them from a dedicated tab
 - 💓 **Heartbeat Notifications** – Optional periodic notifications to confirm the service is running
 - 🧪 **Test Notification** – Send a one-off test message to your configured destinations from the dashboard
 - 🎨 **Dark/Light Theme** – Responsive web dashboard with persistent theme preference
@@ -223,6 +224,7 @@ Once running, access the web dashboard at `http://localhost:8080` (or your confi
 - **Apprise URLs** – Add or remove notification endpoints on the fly, and send a test notification to confirm they work
 - **Settings** – Toggle options (update checker, always-notify), change the default theme, edit the `.env` file directly with the built-in editor, and import/export your configuration as `config.json`
 - **Logs** – Filterable live log viewer with level and line-count controls
+- **Library** – Archive of apps removed from monitoring, with search, sort, and restore/delete/clear actions
 
 ### API Endpoints
 
@@ -239,6 +241,9 @@ Interactive OpenAPI docs are available at `/docs`.
 | `/api/testflight-ids` | GET / POST | List or add a monitored TestFlight ID |
 | `/api/testflight-ids/details` | GET | Monitored IDs with app names, icons, and per-app settings |
 | `/api/testflight-ids/{id}/settings` | POST | Update per-app settings (enabled, friendly name, interval, notify toggles) |
+| `/api/library` | GET / DELETE | List archived apps (`?search=`, `?sort=name\|archived`) / clear all |
+| `/api/library/{id}/restore` | POST | Restore an archived app back to monitoring |
+| `/api/library/{id}` | DELETE | Delete a single archived app |
 | `/api/testflight-ids/{id}` | DELETE | Remove a TestFlight ID |
 | `/api/testflight-ids/batch` | POST | Add/remove multiple IDs at once |
 | `/api/apprise-urls` | GET / POST | List or add an Apprise notification URL |
