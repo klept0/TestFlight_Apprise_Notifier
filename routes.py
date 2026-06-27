@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+import config_io
 import state
 from state import (
     apobj,
@@ -593,6 +594,48 @@ async def restore_config():
     except Exception as e:
         logging.error(f"Failed to restore .env file: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to restore config: {str(e)}")
+
+
+@router.get("/api/config/export")
+async def export_config(include_secrets: bool = False):
+    """Export portable configuration (monitored IDs + settings).
+
+    Secrets and runtime state are excluded by default. ``include_secrets=true``
+    must be set explicitly to include raw Apprise URLs, and is warned about.
+    """
+    if include_secrets:
+        logging.warning(
+            "Config export requested WITH secrets - the file will contain raw "
+            "Apprise URLs"
+        )
+    return config_io.build_export(include_secrets=include_secrets)
+
+
+@router.post("/api/config/import")
+async def import_config(request: Request):
+    """Import a portable configuration file.
+
+    Validates the whole structure before applying; malformed JSON, unknown
+    fields, or invalid values are rejected without writing anything. State-
+    changing, so the existing CSRF protection applies.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed JSON")
+
+    normalized, error = config_io.validate_import(data)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    if not config_io.apply_import(normalized):
+        raise HTTPException(status_code=500, detail="Failed to write imported config")
+
+    logging.info("Configuration imported via web interface")
+    return {
+        "success": True,
+        "message": "Configuration imported. Restart to apply changes.",
+    }
 
 
 @router.get("/config")

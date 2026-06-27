@@ -502,6 +502,59 @@ async function saveAndRestart() {
   }
 }
 
+/* ── Config import / export ─────────────────────────────────── */
+async function exportConfig() {
+  const statusDiv = document.getElementById('import-export-status');
+  try {
+    const res = await fetch('/api/config/export');
+    if (!res.ok) { setStatus(statusDiv, 'Export failed.', 'error'); return; }
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'config.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    setStatus(statusDiv, 'Configuration exported.', 'success');
+  } catch (e) {
+    setStatus(statusDiv, `Error: ${e.message}`, 'error');
+  }
+}
+
+function triggerImportConfig() {
+  document.getElementById('import-config-file').click();
+}
+
+async function importConfig(input) {
+  const statusDiv = document.getElementById('import-export-status');
+  const file = input.files && input.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setStatus(statusDiv, 'Selected file is not valid JSON.', 'error');
+      return;
+    }
+    const res  = await fetch('/api/config/import', jsonPost(parsed));
+    const data = await res.json();
+    if (res.ok) {
+      setStatus(statusDiv, data.message || 'Configuration imported.', 'success');
+      showToast('Configuration imported', 'success', 'Imported');
+    } else {
+      setStatus(statusDiv, data.detail || 'Import failed.', 'error');
+    }
+  } catch (e) {
+    setStatus(statusDiv, `Error: ${e.message}`, 'error');
+  } finally {
+    input.value = '';
+  }
+}
+
 async function saveToggles() {
   const statusDiv = document.getElementById('toggle-status');
   const updateChecker = document.getElementById('toggle-update-checker').checked;
