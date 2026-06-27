@@ -16,7 +16,9 @@ from state import (
     add_apprise_url,
     add_testflight_id,
     app_start_time,
+    apprise_url_id,
     check_github_updates,
+    find_apprise_url_by_id,
     get_current_apprise_urls,
     get_current_id_list,
     handle_shutdown_signal,
@@ -341,31 +343,31 @@ async def batch_operations(payload: BatchIdRequest):
     return result
 
 
-@router.get("/api/apprise-urls")
-async def get_apprise_urls():
-    """Get current list of Apprise URLs with service information."""
-    urls = get_current_apprise_urls()
+def _apprise_urls_payload():
+    """Build the Apprise URL list for API responses.
 
-    # Add service information for each URL
-    urls_with_info = []
-    for url in urls:
+    Each entry exposes a stable non-secret ``id`` (used for removal) and a
+    masked ``display_url`` — never the raw, secret-bearing URL.
+    """
+    payload = []
+    for url in get_current_apprise_urls():
         service_info = get_apprise_service_icon(url)
-
-        # Mask credentials/tokens for display (raw value kept in `url` for
-        # removal operations only).
-        display_url = mask_secret(url)
-
-        urls_with_info.append(
+        payload.append(
             {
-                "url": url,  # Full URL for removal operations
-                "display_url": display_url,
+                "id": apprise_url_id(url),
+                "display_url": mask_secret(url),
                 "service_name": service_info["service_name"],
                 "icon_url": service_info["icon_url"],
                 "emoji": service_info["emoji"],
             }
         )
+    return payload
 
-    return {"apprise_urls": urls_with_info}
+
+@router.get("/api/apprise-urls")
+async def get_apprise_urls():
+    """Get current list of Apprise URLs with service information."""
+    return {"apprise_urls": _apprise_urls_payload()}
 
 
 @router.post("/api/apprise-urls/validate")
@@ -397,22 +399,21 @@ async def add_url(payload: AppriseUrlRequest):
     if not success:
         raise HTTPException(status_code=400, detail=message)
 
-    return {"message": message, "apprise_urls": get_current_apprise_urls()}
+    return {"message": message, "apprise_urls": _apprise_urls_payload()}
 
 
-@router.delete("/api/apprise-urls/{url:path}")
-async def remove_url(url: str):
-    """Remove an Apprise URL."""
-    # URL decode the path parameter since it might contain special characters
-    import urllib.parse
+@router.delete("/api/apprise-urls/{url_id}")
+async def remove_url(url_id: str):
+    """Remove an Apprise URL by its non-secret id."""
+    url = find_apprise_url_by_id(url_id)
+    if url is None:
+        raise HTTPException(status_code=404, detail="Apprise URL not found")
 
-    decoded_url = urllib.parse.unquote(url)
-
-    success, message = remove_apprise_url(decoded_url)
+    success, message = remove_apprise_url(url)
     if not success:
         raise HTTPException(status_code=404, detail=message)
 
-    return {"message": message, "apprise_urls": get_current_apprise_urls()}
+    return {"message": message, "apprise_urls": _apprise_urls_payload()}
 
 
 @router.post("/api/control/stop")
@@ -484,32 +485,43 @@ async def get_config():
 
 @router.post("/api/config")
 async def save_config(content: str = Form(...)):
-    """Save changes to the .env file."""
+    """Save changes to the .env file (validated, backed up, atomic)."""
+    import shutil
+    import tempfile
+
+    env_path = ".env"
+    backup_path = f"{env_path}.backup"
+
+    # Validate before writing; abort (without touching the file) on invalid input.
+    if not isinstance(content, str) or "\x00" in content or not content.strip():
+        raise HTTPException(status_code=400, detail="Invalid configuration content")
+
     try:
-        if not isinstance(content, str):
-            raise HTTPException(status_code=400, detail="Content must be a string")
-        
-        env_path = ".env"
-        
-        # Create backup before saving
+        # Back up the current file (if any) before replacing it.
         if os.path.exists(env_path):
-            backup_path = f"{env_path}.backup"
-            with open(env_path, "r") as f:
-                backup_content = f.read()
-            with open(backup_path, "w") as f:
-                f.write(backup_content)
+            shutil.copy2(env_path, backup_path)
             logging.info(f"Created backup at {backup_path}")
-        
-        # Write new content
-        with open(env_path, "w") as f:
-            f.write(content)
-        
+
+        # Write to a temp file in the same directory, fsync, then atomically
+        # replace the original. Content is preserved exactly.
+        env_dir = os.path.dirname(os.path.abspath(env_path)) or "."
+        fd, tmp_path = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=env_dir)
+        try:
+            with os.fdopen(fd, "w") as tmp:
+                tmp.write(content)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp_path, env_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
         logging.info("Configuration file updated via web interface")
-        
+
         return {
             "success": True,
             "message": "Configuration saved. Restart to apply changes.",
-            "backup_created": True
+            "backup_created": os.path.exists(backup_path),
         }
     except HTTPException:
         raise

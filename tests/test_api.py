@@ -9,10 +9,11 @@ optional HTTP Basic auth.
 
 import asyncio
 import importlib
+import json
 import os
-import urllib.parse
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 # The app reads required config at import time, so set it before importing.
@@ -117,12 +118,76 @@ def test_add_and_remove_apprise_url(client, monkeypatch):
 
     r = client.post("/api/apprise-urls", json={"url": url})
     assert r.status_code == 200, r.text
-    assert url in r.json()["apprise_urls"]
+    items = r.json()["apprise_urls"]
+    url_id = state.apprise_url_id(url)
+    assert any(i["id"] == url_id for i in items)
+    assert url in state.current_apprise_urls  # raw value kept in config storage
 
-    encoded = urllib.parse.quote(url, safe="")
-    r = client.request("DELETE", f"/api/apprise-urls/{encoded}")
+    # Remove by the stable non-secret id.
+    r = client.request("DELETE", f"/api/apprise-urls/{url_id}")
     assert r.status_code == 200
-    assert url not in r.json()["apprise_urls"]
+    assert url not in state.current_apprise_urls
+
+
+def test_apprise_urls_response_exposes_no_raw_url(client, monkeypatch):
+    """Issue 1: the API must not return the raw secret-bearing URL."""
+    monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
+    monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
+
+    secret = "discord://999999/TopSecretToken12345"
+    state.current_apprise_urls[:] = [secret]
+
+    body = client.get("/api/apprise-urls").json()
+    item = body["apprise_urls"][0]
+    assert "url" not in item  # no raw URL field
+    assert item["id"] == state.apprise_url_id(secret)  # stable id for removal
+    assert "TopSecretToken12345" not in item["display_url"]  # display masked
+    # The secret must not appear anywhere in the response.
+    assert "TopSecretToken12345" not in json.dumps(body)
+
+
+# ── Hardened .env save (Issue 2) ────────────────────────────────
+def test_save_config_atomic_with_backup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("APPRISE_URL=discord://a/b\n# old comment\n")
+
+    new_content = "APPRISE_URL=discord://c/d\nID_LIST=abc123\n# new comment\n"
+    res = asyncio.run(routes.save_config(content=new_content))
+
+    assert res["success"] is True
+    # Content preserved exactly.
+    assert env.read_text() == new_content
+    # Backup holds the previous version.
+    backup = tmp_path / ".env.backup"
+    assert backup.exists()
+    assert "discord://a/b" in backup.read_text()
+    # No leftover temp files.
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_save_config_aborts_on_empty(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    original = "APPRISE_URL=discord://a/b\n"
+    env.write_text(original)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.save_config(content="   "))
+    assert exc.value.status_code == 400
+    assert env.read_text() == original  # untouched
+
+
+def test_save_config_aborts_on_null_byte(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    original = "APPRISE_URL=discord://a/b\n"
+    env.write_text(original)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.save_config(content="APPRISE_URL=x\x00y\n"))
+    assert exc.value.status_code == 400
+    assert env.read_text() == original
 
 
 # ── CSRF protection ─────────────────────────────────────────────

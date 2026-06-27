@@ -367,7 +367,7 @@ function renderUrls(urls) {
         <div class="item-sub" title="${escAttr(u.display_url)}">${escHtml(u.display_url)}</div>
       </div>
       <div class="item-actions">
-        <button class="btn btn-sm btn-danger" onclick="removeUrl('${escAttr(encodeURIComponent(u.url))}')" aria-label="Remove ${escAttr(u.service_name)} URL">Remove</button>
+        <button class="btn btn-sm btn-danger" onclick="removeUrl('${escAttr(u.id)}')" aria-label="Remove ${escAttr(u.service_name)} URL">Remove</button>
       </div>
     </div>`;
   }).join('');
@@ -416,9 +416,9 @@ async function validateAndAddUrl() {
   addBtn.disabled = false;
 }
 
-async function removeUrl(encodedUrl) {
+async function removeUrl(urlId) {
   try {
-    const res  = await fetch(`/api/apprise-urls/${encodedUrl}`, { method: 'DELETE' });
+    const res  = await fetch(`/api/apprise-urls/${urlId}`, { method: 'DELETE' });
     const data = await res.json();
     if (res.ok) {
       renderUrls(data.apprise_urls);

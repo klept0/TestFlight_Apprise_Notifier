@@ -122,6 +122,26 @@ def get_current_apprise_urls():
         return current_apprise_urls.copy()
 
 
+def apprise_url_id(url: str) -> str:
+    """Return a stable, non-secret identifier for an Apprise URL.
+
+    Lets the API/dashboard reference a URL (e.g. for removal) without exposing
+    the secret-bearing value itself.
+    """
+    import hashlib
+
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+
+def find_apprise_url_by_id(url_id: str):
+    """Return the current Apprise URL whose id matches, or None."""
+    with apprise_urls_lock:
+        for u in current_apprise_urls:
+            if apprise_url_id(u) == url_id:
+                return u
+    return None
+
+
 def update_env_file(key: str, new_values: list[str]):
     """Safely update the .env file with new values for a given key.
 
