@@ -130,8 +130,11 @@ function closeModal() {
 }
 
 document.getElementById('confirm-ok').addEventListener('click', () => {
+  // Capture the callback before closeModal() clears it, otherwise the
+  // confirmed action (stop/restart) would never run.
+  const cb = _confirmCallback;
   closeModal();
-  if (_confirmCallback) _confirmCallback();
+  if (cb) cb();
 });
 
 document.getElementById('modal-overlay').addEventListener('click', e => {
