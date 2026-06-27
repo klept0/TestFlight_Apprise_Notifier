@@ -7,6 +7,7 @@ cover the read endpoints, input validation, the add/remove flows, and the
 optional HTTP Basic auth.
 """
 
+import asyncio
 import importlib
 import os
 import urllib.parse
@@ -166,3 +167,26 @@ def test_loopback_host_without_credentials_ok(monkeypatch):
     for host in ("127.0.0.1", "localhost", "::1"):
         monkeypatch.setenv("FASTAPI_HOST", host)
         main.validate_auth_config()  # should not raise
+
+
+# ── Disabled heartbeat must not exit immediately ────────────────
+def test_disabled_heartbeat_waits_for_shutdown(monkeypatch):
+    """With HEARTBEAT_INTERVAL=0 the heartbeat task must stay alive until
+    shutdown_event is set, so it doesn't trip async_main's FIRST_COMPLETED."""
+    monkeypatch.setattr(main, "HEARTBEAT_INTERVAL", 0)
+
+    async def run():
+        ev = asyncio.Event()
+        monkeypatch.setattr(main, "shutdown_event", ev)
+
+        task = asyncio.create_task(main.heartbeat())
+        await asyncio.sleep(0.05)
+        # Must NOT have returned immediately.
+        assert not task.done()
+
+        # Setting shutdown lets it finish cleanly (no exception).
+        ev.set()
+        await asyncio.wait_for(task, timeout=1)
+        assert task.done() and task.exception() is None
+
+    asyncio.run(run())
