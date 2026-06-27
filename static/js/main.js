@@ -4,6 +4,27 @@
 
 'use strict';
 
+/* ── CSRF ───────────────────────────────────────────────────── */
+/* Echo the csrf_token cookie in the X-CSRF-Token header on every
+   state-changing request, so the server's CSRF check passes. Wraps fetch
+   once so all existing call sites are covered. */
+(function () {
+  const _origFetch = window.fetch;
+  window.fetch = function (url, opts) {
+    opts = opts || {};
+    const method = (opts.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      const m = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+      if (m) {
+        const headers = new Headers(opts.headers || {});
+        headers.set('X-CSRF-Token', decodeURIComponent(m[1]));
+        opts.headers = headers;
+      }
+    }
+    return _origFetch.call(this, url, opts);
+  };
+})();
+
 /* ── Theme ──────────────────────────────────────────────────── */
 function initTheme() {
   const saved = localStorage.getItem('tf-theme');
