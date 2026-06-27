@@ -107,6 +107,8 @@ All configuration is done through environment variables in the `.env` file. You 
 |----------|---------|-------------|
 | `INTERVAL_CHECK` | `10000` | Check interval in milliseconds |
 | `HEARTBEAT_INTERVAL` | `6` | Hours between heartbeat notifications (0 to disable) |
+| `RETRY_BACKOFF_BASE_SECONDS` | `30` | Initial per-ID cooldown after a failed check; grows exponentially per consecutive failure |
+| `RETRY_BACKOFF_MAX_SECONDS` | `3600` | Maximum per-ID retry cooldown (cap for the exponential backoff) |
 | `ALWAYS_NOTIFY_OPEN` | `false` | Send notification on every poll when status is OPEN |
 | `ENABLE_UPDATE_CHECKER` | `true` | Check GitHub for new version releases |
 | `GITHUB_CHECK_INTERVAL_HOURS` | `24` | How often to check for updates (hours) |

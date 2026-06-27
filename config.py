@@ -111,3 +111,8 @@ APPRISE_URLS = [
 HEARTBEAT_INTERVAL = (
     int(os.getenv("HEARTBEAT_INTERVAL", "6")) * 60 * 60
 )  # Convert hours to seconds
+
+# Per-ID retry backoff (seconds). After a failed check, an ID is skipped until
+# its cooldown elapses; the delay grows exponentially up to the cap.
+RETRY_BACKOFF_BASE = float(os.getenv("RETRY_BACKOFF_BASE_SECONDS", "30"))
+RETRY_BACKOFF_MAX = float(os.getenv("RETRY_BACKOFF_MAX_SECONDS", "3600"))

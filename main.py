@@ -24,6 +24,8 @@ from config import (
     GITHUB_CHECK_INTERVAL,
     HEARTBEAT_INTERVAL,
     ID_LIST,
+    RETRY_BACKOFF_BASE,
+    RETRY_BACKOFF_MAX,
     SLEEP_TIME,
     TESTFLIGHT_URL,
 )
@@ -108,6 +110,51 @@ _last_notification_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
 _last_success_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
 _failure_count: Dict[str, int] = {}  # tf_id -> consecutive failures
 
+# Per-ID retry/backoff scheduling (guarded by _status_lock).
+_last_failure_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
+_next_check_ts: Dict[str, float] = {}  # tf_id -> earliest epoch seconds to retry
+_backoff_delay: Dict[str, float] = {}  # tf_id -> current backoff delay (seconds)
+
+
+def _record_failure(tf_id: str) -> float:
+    """Record a failed check and schedule the next eligible retry.
+
+    Increments the consecutive failure count and grows the backoff delay
+    exponentially (with jitter) up to RETRY_BACKOFF_MAX. Returns the delay.
+    """
+    now = time.time()
+    with _status_lock:
+        count = _failure_count.get(tf_id, 0) + 1
+        _failure_count[tf_id] = count
+        _last_failure_ts[tf_id] = now
+        delay = min(RETRY_BACKOFF_BASE * (2 ** (count - 1)), RETRY_BACKOFF_MAX)
+        delay += random.uniform(0, delay * 0.1)  # jitter to avoid thundering herd
+        _backoff_delay[tf_id] = delay
+        _next_check_ts[tf_id] = now + delay
+    return delay
+
+
+def _record_success(tf_id: str, current_status):
+    """Record a successful check, clearing failure/backoff state.
+
+    Resets the failure count and backoff delay and clears the next-eligible
+    retry time. Returns the previous known status (for change detection).
+    """
+    with _status_lock:
+        previous = _previous_status.get(tf_id)
+        _previous_status[tf_id] = current_status
+        _last_success_ts[tf_id] = time.time()
+        _failure_count[tf_id] = 0
+        _backoff_delay[tf_id] = 0.0
+        _next_check_ts.pop(tf_id, None)
+    return previous
+
+
+def _is_in_cooldown(tf_id: str, now: float) -> bool:
+    """Return True if the ID is still within its retry cooldown window."""
+    with _status_lock:
+        return _next_check_ts.get(tf_id, 0.0) > now
+
 
 def snapshot_runtime_state() -> dict:
     """Build a JSON-serializable snapshot of the monitor's runtime state."""
@@ -116,11 +163,18 @@ def snapshot_runtime_state() -> dict:
         notif = dict(_last_notification_ts)
         succ = dict(_last_success_ts)
         fail = dict(_failure_count)
+        last_fail = dict(_last_failure_ts)
+        next_check = dict(_next_check_ts)
+        backoff = dict(_backoff_delay)
     with _open_notified_lock:
         opened = dict(_open_notified)
 
     apps = {}
-    for tf_id in set(prev) | set(notif) | set(succ) | set(fail) | set(opened):
+    all_ids = (
+        set(prev) | set(notif) | set(succ) | set(fail) | set(opened)
+        | set(last_fail) | set(next_check) | set(backoff)
+    )
+    for tf_id in all_ids:
         cache_key = f"{TESTFLIGHT_URL}:{tf_id}"
         status = prev.get(tf_id)
         apps[tf_id] = {
@@ -129,6 +183,9 @@ def snapshot_runtime_state() -> dict:
             "last_notification_ts": notif.get(tf_id),
             "last_success_ts": succ.get(tf_id),
             "failure_count": fail.get(tf_id, 0),
+            "last_failure_ts": last_fail.get(tf_id),
+            "next_check_ts": next_check.get(tf_id),
+            "backoff_delay": backoff.get(tf_id, 0.0),
             "app_name": app_name_cache.get(cache_key),
             "icon_url": app_icon_cache.get(cache_key),
         }
@@ -157,6 +214,11 @@ def restore_runtime_state(snapshot: dict) -> None:
                 if rec.get("last_success_ts") is not None:
                     _last_success_ts[tf_id] = float(rec["last_success_ts"])
                 _failure_count[tf_id] = int(rec.get("failure_count", 0) or 0)
+                if rec.get("last_failure_ts") is not None:
+                    _last_failure_ts[tf_id] = float(rec["last_failure_ts"])
+                if rec.get("next_check_ts") is not None:
+                    _next_check_ts[tf_id] = float(rec["next_check_ts"])
+                _backoff_delay[tf_id] = float(rec.get("backoff_delay", 0.0) or 0.0)
             with _open_notified_lock:
                 _open_notified[tf_id] = bool(rec.get("notified_open", False))
 
@@ -356,13 +418,13 @@ async def fetch_testflight_status(session, tf_id):
 
         # Handle errors
         if result["status"] == TestFlightStatus.ERROR:
-            with _status_lock:
-                _failure_count[tf_id] = _failure_count.get(tf_id, 0) + 1
+            delay = _record_failure(tf_id)
             logging.warning(
-                "%s - %s - Error: %s",
+                "%s - %s - Error: %s (retry in ~%ds)",
                 result.get("status_text", "Unknown"),
                 tf_id,
                 result.get("error", "Unknown error"),
+                int(delay),
             )
             return
 
@@ -371,13 +433,9 @@ async def fetch_testflight_status(session, tf_id):
         if not app_name:
             app_name = await get_app_name(TESTFLIGHT_URL, tf_id)
 
-        # Get current and previous status
+        # Get current and previous status (a successful check clears backoff)
         current_status = result["status"]
-        with _status_lock:
-            previous_status = _previous_status.get(tf_id)
-            _previous_status[tf_id] = current_status
-            _last_success_ts[tf_id] = time.time()
-            _failure_count[tf_id] = 0
+        previous_status = _record_success(tf_id, current_status)
 
         # Determine if we should notify
         should_notify = False
@@ -445,18 +503,24 @@ async def fetch_testflight_status(session, tf_id):
             logging.info(f"Notification sent for {app_name}")
 
     except Exception as e:
-        with _status_lock:
-            _failure_count[tf_id] = _failure_count.get(tf_id, 0) + 1
+        _record_failure(tf_id)
         _metrics.record_check(TestFlightStatus.ERROR, success=False)
         logging.error(f"Unexpected error fetching {tf_id}: {e}")
 
 
 async def watch():
-    """Check all TestFlight links."""
+    """Check all TestFlight links that are not in retry cooldown."""
     try:
         current_ids = get_current_id_list()
+        now = time.time()
+        # Skip only the IDs still in backoff; the rest are checked normally so
+        # one broken ID can't delay or starve the others.
+        eligible = [tf for tf in current_ids if not _is_in_cooldown(tf, now)]
+        skipped = len(current_ids) - len(eligible)
+        if skipped:
+            logging.debug("Skipping %d TestFlight ID(s) in retry cooldown", skipped)
         session = await get_http_session()
-        tasks = [fetch_testflight_status(session, tf_id) for tf_id in current_ids]
+        tasks = [fetch_testflight_status(session, tf_id) for tf_id in eligible]
         await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:
         logging.debug("Watch cycle cancelled during shutdown")
