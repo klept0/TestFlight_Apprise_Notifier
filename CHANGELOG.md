@@ -9,10 +9,13 @@
 ### Bug Fixes
 - **Docker healthcheck** - Replaced the `requests`-based healthcheck (an undeclared dependency that left the container permanently `unhealthy`) with a stdlib `urllib` check that exits non-zero on failure.
 - **Graceful shutdown** - Signal handlers were registered at import time on an event loop that `asyncio.run()` never used, so `SIGTERM` (e.g. `docker stop`) skipped cleanup. They are now attached to the running loop in `async_main()`.
+- **Restart from the dashboard** - Now re-executes in place via `os.execv` instead of spawning a child process. The previous approach spawned a child that died with the container (so restart did nothing under Docker). Also warns when `FASTAPI_PORT` is unset, since the dashboard could otherwise return on a different random port.
 
 ### Improvements
 - **Docker Compose** - Mount `.env` read-write so the in-app config editor and add/remove ID/URL features persist (the previous `:ro` mount silently broke them), removed the obsolete `version:` key, and documented the new auth variables.
-- **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations.
+- **Non-root container** - The Docker image now runs as an unprivileged user (uid 10001) instead of root.
+- **Non-blocking notifications** - The heartbeat loop and the stop/restart endpoints now send notifications via the async helper so a slow notification service no longer stalls the event loop.
+- **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations, the unused circuit-breaker helpers (`is_circuit_breaker_open` / `record_request_*`, never wired into the request path — the `/api/health` `circuit_breaker` field is gone), and the unused `check_multiple_testflight_urls` utility.
 
 ---
 

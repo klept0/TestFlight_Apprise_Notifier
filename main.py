@@ -46,11 +46,6 @@ load_dotenv()
 # Enable status caching with 5-minute TTL for improved performance
 enable_status_cache(ttl_seconds=300)
 
-# Circuit breaker for external requests
-_request_failures = {}
-_circuit_breaker_threshold = 5
-_circuit_breaker_timeout = 300  # 5 minutes
-
 # Global HTTP session and lock
 _http_session = None
 _session_lock = threading.Lock()
@@ -174,33 +169,6 @@ class MetricsCollector:
 
 # Global metrics collector
 _metrics = MetricsCollector()
-
-
-def is_circuit_breaker_open(url: str) -> bool:
-    """Check if circuit breaker is open for a URL."""
-    if url in _request_failures:
-        failures, last_failure = _request_failures[url]
-        if failures >= _circuit_breaker_threshold:
-            if time.time() - last_failure < _circuit_breaker_timeout:
-                return True
-            else:
-                # Reset circuit breaker after timeout
-                del _request_failures[url]
-    return False
-
-
-def record_request_failure(url: str):
-    """Record a request failure for circuit breaker."""
-    if url not in _request_failures:
-        _request_failures[url] = [0, 0]
-    _request_failures[url][0] += 1
-    _request_failures[url][1] = time.time()
-
-
-def record_request_success(url: str):
-    """Record a request success, resetting circuit breaker."""
-    if url in _request_failures:
-        del _request_failures[url]
 
 
 async def get_http_session() -> aiohttp.ClientSession:
@@ -1447,9 +1415,6 @@ async def home(request: Request):
 async def health_check():
     """Health check endpoint for monitoring."""
     current_ids = get_current_id_list()
-    circuit_breaker_status = {
-        url: failures for url, (failures, _) in _request_failures.items()
-    }
 
     return {
         "status": "healthy",
@@ -1459,16 +1424,6 @@ async def health_check():
         "cache_stats": {
             "app_names": len(app_name_cache.cache),
             "app_icons": len(app_icon_cache.cache),
-        },
-        "circuit_breaker": {
-            "open_circuits": len(
-                [
-                    url
-                    for url in circuit_breaker_status.keys()
-                    if is_circuit_breaker_open(url)
-                ]
-            ),
-            "total_tracked": len(circuit_breaker_status),
         },
         "http_session": (
             "active" if _http_session and not _http_session.closed else "inactive"
@@ -1807,7 +1762,7 @@ async def stop_application():
     # Send notification about the stop
     try:
         msg = "🛑 TestFlight Apprise Notifier stopped via web interface"
-        send_notification(msg, apobj)
+        await send_notification_async(msg, apobj)
     except Exception:
         pass  # Ignore notification errors during shutdown
 
@@ -1816,46 +1771,46 @@ async def stop_application():
     return {"message": "Application is shutting down..."}
 
 
+def _perform_restart():
+    """Replace the current process image with a fresh instance.
+
+    Using os.execv (rather than spawning a child via subprocess) keeps the
+    same PID, so it works both on bare metal and inside a container where the
+    app is PID 1 - a spawned child would die when the original process exits
+    and take the container down with it.
+    """
+    import sys
+
+    python_executable = sys.executable
+    script_path = os.path.abspath(sys.argv[0])
+    logging.info("Re-executing application for restart...")
+    os.execv(python_executable, [python_executable, script_path])
+
+
 @app.post("/api/control/restart")
 async def restart_application():
-    """Restart the application."""
+    """Restart the application by re-executing it in place."""
     logging.info("Restart command received via web interface")
 
     # Send notification about the restart
     try:
         msg = "🔄 TestFlight Apprise Notifier restarting via web interface"
-        send_notification(msg, apobj)
+        await send_notification_async(msg, apobj)
     except Exception:
         pass  # Ignore notification errors during restart
 
-    # Get the current Python executable and script path
-    import sys
-    import subprocess
-    import os
-
-    python_executable = sys.executable
-    script_path = os.path.abspath(sys.argv[0])
-
-    try:
-        # Start a new instance of the application
-        subprocess.Popen(
-            [python_executable, script_path],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
+    # The re-exec inherits the current environment, so an unset FASTAPI_PORT
+    # means a new random port is chosen on restart and the dashboard URL changes.
+    if not os.getenv("FASTAPI_PORT"):
+        logging.warning(
+            "FASTAPI_PORT is not set; the dashboard may come back on a "
+            "different random port after restart. Set FASTAPI_PORT to keep it stable."
         )
 
-        logging.info("New application instance started, shutting down current instance")
-
-        # Trigger graceful shutdown of current instance
-        handle_shutdown_signal()
-
-        return {"message": "Application is restarting..."}
-
-    except Exception as e:
-        logging.error(f"Failed to restart application: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to restart: {str(e)}")
+    # Defer the re-exec briefly so this HTTP response can flush to the client
+    # before the process image is replaced.
+    threading.Timer(1.0, _perform_restart).start()
+    return {"message": "Application is restarting..."}
 
 
 @app.get("/api/config")
@@ -2077,7 +2032,7 @@ async def heartbeat():
         while True:
             current_time = format_datetime(datetime.now())
             message = f"Heartbeat - {current_time}"
-            send_notification(message, apobj)
+            await send_notification_async(message, apobj)
             print_green(message)
             await asyncio.sleep(HEARTBEAT_INTERVAL)
     except asyncio.CancelledError:

@@ -16,8 +16,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . .
 
-# Create data directory for persistent storage (optional)
-RUN mkdir -p /app/data
+# Create a non-root user and give it ownership of the app + data directory so
+# the process (and the in-app .env editor) can write where it needs to.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app
+USER appuser
 
 # Expose FastAPI port
 EXPOSE 8080

@@ -16,6 +16,9 @@ services:
       # Set these (e.g. in .env) to require an HTTP Basic login:
       # - WEB_USERNAME=admin
       # - WEB_PASSWORD=change-me
+    # The container runs as a non-root user (uid 10001). For the in-app config
+    # editor to write the mounted .env, ensure the host files are writable by
+    # that uid, e.g. `chown 10001 .env data` (or set `user:` to match yours).
     volumes:
       # Mount .env read-write so the in-app config editor and add/remove
       # ID/URL features can persist changes back to the host file.
