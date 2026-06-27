@@ -14,6 +14,9 @@
 - **Docker Compose** - Mount `.env` read-write so the in-app config editor and add/remove ID/URL features persist (the previous `:ro` mount silently broke them), removed the obsolete `version:` key, and documented the new auth variables.
 - **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations.
 
+### Tests
+- **API coverage** - Added `tests/test_api.py` (TestClient) covering the health/metrics/list endpoints, log-limit validation, the add/remove ID and URL flows, and the optional HTTP Basic auth.
+
 ---
 
 ## v1.0.5e - October 3, 2025
