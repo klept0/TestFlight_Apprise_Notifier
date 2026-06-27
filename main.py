@@ -18,9 +18,22 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 from datetime import datetime
 from typing import Optional, Dict, Any
+from config import (
+    __version__,
+    ALWAYS_NOTIFY_OPEN,
+    APPRISE_URLS,
+    ENABLE_UPDATE_CHECKER,
+    GITHUB_BRANCH,
+    GITHUB_CHECK_INTERVAL,
+    GITHUB_REPO,
+    HEARTBEAT_INTERVAL,
+    ID_LIST,
+    SLEEP_TIME,
+    TESTFLIGHT_URL,
+    UI_THEME,
+)
 from utils.notifications import send_notification, send_notification_async
 from utils.formatting import (
     format_datetime,
@@ -49,34 +62,19 @@ from utils.web_logging import (
     log_entries_lock,
 )
 
-# Load .env before any os.getenv() calls so all variables see the file values
-load_dotenv()
-
 # Enable status caching with 5-minute TTL for improved performance
 enable_status_cache(ttl_seconds=300)
+
+# Optional HTTP Basic auth for the web dashboard/API. Enabled only when BOTH
+# WEB_USERNAME and WEB_PASSWORD are set; otherwise the app relies on binding to
+# localhost (the default host). Read here (not in config.py) so the values are
+# re-read when the module is reloaded, e.g. in tests.
+WEB_USERNAME = os.getenv("WEB_USERNAME", "").strip()
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
 
 # Global HTTP session and lock
 _http_session = None
 _session_lock = threading.Lock()
-
-# GitHub repository configuration (override via environment variables)
-GITHUB_REPO = os.getenv("GITHUB_REPO", "klept0/TestFlight_Apprise_Notifier")
-GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
-GITHUB_CHECK_INTERVAL = int(os.getenv("GITHUB_CHECK_INTERVAL_HOURS", "24"))
-ENABLE_UPDATE_CHECKER = os.getenv("ENABLE_UPDATE_CHECKER", "true").lower() in (
-    "1", "true", "yes", "on"
-)
-
-# UI default theme: "dark" or "light" (users can override per-browser via the toggle)
-_raw_theme = os.getenv("UI_THEME", "dark").lower().strip()
-UI_THEME = "dark" if _raw_theme not in ("light", "dark") else _raw_theme
-
-# Optional HTTP Basic auth for the web dashboard/API. Enabled only when BOTH
-# WEB_USERNAME and WEB_PASSWORD are set. When unset, the app relies on binding
-# to localhost (the default host) for protection. Set these whenever the
-# dashboard is exposed beyond localhost (e.g. in Docker or behind a proxy).
-WEB_USERNAME = os.getenv("WEB_USERNAME", "").strip()
-WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
 
 # Status tracking for change notifications
 _previous_status = {}  # tf_id -> TestFlightStatus
@@ -85,14 +83,6 @@ _status_lock = threading.Lock()
 # Track whether an OPEN notification has been sent per TestFlight ID
 _open_notified: Dict[str, bool] = {}  # tf_id -> notification sent?
 _open_notified_lock = threading.Lock()
-
-# Configuration: force notifications for every OPEN poll
-ALWAYS_NOTIFY_OPEN = os.getenv("ALWAYS_NOTIFY_OPEN", "false").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
 
 # GitHub update check tracking
 _last_update_check: Optional[Dict[str, Any]] = None
@@ -136,86 +126,6 @@ async def get_http_session() -> aiohttp.ClientSession:
     return _http_session
 
 
-# Version
-__version__ = "2.0.0"
-
-
-def get_multiline_env_value(key: str) -> str:
-    """Get environment value that may span multiple lines in .env file."""
-    try:
-        env_path = ".env"
-        if not os.path.exists(env_path):
-            return os.getenv(key, "")
-
-        with open(env_path, "r") as f:
-            lines = f.readlines()
-
-        # Find the key and collect all continuation lines
-        value_lines = []
-        in_multiline = False
-
-        for line in lines:
-            line = line.strip()
-            if line.startswith(f"{key}="):
-                # Start of the key
-                value_part = line[len(f"{key}=") :]
-                if value_part.startswith('"') and value_part.endswith('"'):
-                    # Quoted value - remove quotes and unescape
-                    return value_part[1:-1].replace("\\n", "\n")
-                else:
-                    # Multi-line value starting
-                    value_lines.append(value_part.rstrip(","))
-                    in_multiline = True
-            elif in_multiline and line and not line.startswith("#") and "=" not in line:
-                # Continuation line
-                value_lines.append(line.rstrip(","))
-            elif in_multiline and (
-                line.startswith(("APPRISE_URL=", "ID_LIST=", "INTERVAL_CHECK="))
-                or not line
-            ):
-                # End of multi-line value (next key or empty line)
-                break
-
-        if value_lines:
-            return "\n".join(value_lines)
-        else:
-            return os.getenv(key, "")
-    except Exception:
-        return os.getenv(key, "")
-
-
-# Constants
-TESTFLIGHT_URL = "https://testflight.apple.com/join/"
-FULL_TEXT = "This beta is full."
-NOT_OPEN_TEXT = "This beta isn't accepting any new testers right now."
-
-# Parse ID_LIST (supporting multi-line format)
-id_list_raw_value = get_multiline_env_value("ID_LIST")
-id_list_raw = [
-    tf_id.strip().rstrip(",")
-    for tf_id in id_list_raw_value.replace("\n", ",").split(",")
-    if tf_id.strip()
-]
-
-SLEEP_TIME = int(os.getenv("INTERVAL_CHECK", "10000"))  # in ms
-TITLE_REGEX = re.compile(r"Join the (.+) beta - TestFlight - Apple")
-
-# Parse Apprise URLs (supporting multi-line format)
-apprise_url_raw = get_multiline_env_value("APPRISE_URL")
-apprise_urls_raw = [
-    url.strip().rstrip(",")
-    for url in apprise_url_raw.replace("\n", ",").split(",")
-    if url.strip()
-]
-
-# Heartbeat interval (default: 6 hours)
-# Can be configured via HEARTBEAT_INTERVAL environment variable (in hours)
-HEARTBEAT_INTERVAL = (
-    int(os.getenv("HEARTBEAT_INTERVAL", "6")) * 60 * 60
-)  # Convert hours to seconds
-
-
-
 # Configure colored console logging (see utils/web_logging.py).
 configure_logging(__version__)
 
@@ -224,9 +134,6 @@ app_start_time = datetime.now()
 
 
 # Validate environment variables
-ID_LIST = [tf_id.strip() for tf_id in id_list_raw if tf_id.strip()]
-APPRISE_URLS = [url.strip() for url in apprise_urls_raw if url.strip()]
-
 # Allow empty ID_LIST - user can add IDs via web interface
 if not ID_LIST:
     logging.warning(
