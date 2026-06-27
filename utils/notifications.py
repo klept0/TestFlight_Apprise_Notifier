@@ -1,6 +1,43 @@
 import logging
 import asyncio
 
+TEST_NOTIFICATION_TITLE = "TestFlight Apprise Notifier"
+TEST_NOTIFICATION_BODY = (
+    "✅ Test notification from TestFlight Apprise Notifier. "
+    "If you received this, your notifications are working."
+)
+
+
+def _send_test_sync(urls):
+    """Send a test notification to each Apprise URL independently.
+
+    Returns a (sent, failed) count tuple. Sends to each destination on its own
+    so a partial outcome ("at least one sent") can be reported. Never logs or
+    returns the URLs/secrets themselves.
+    """
+    import apprise
+
+    sent = 0
+    failed = 0
+    for url in urls:
+        try:
+            target = apprise.Apprise()
+            if target.add(url) and target.notify(
+                body=TEST_NOTIFICATION_BODY, title=TEST_NOTIFICATION_TITLE
+            ):
+                sent += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    return sent, failed
+
+
+async def send_test_notification(urls):
+    """Async wrapper: send a one-off test notification to each configured URL."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _send_test_sync, list(urls))
+
 
 def send_notification(message: str, apobj, icon_url: str = ""):
     """Send notification using Apprise with error handling.

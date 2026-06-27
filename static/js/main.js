@@ -432,6 +432,28 @@ async function removeUrl(urlId) {
   }
 }
 
+async function sendTestNotification() {
+  const btn = document.getElementById('test-notify-btn');
+  if (!btn || btn.disabled) return;        // prevent duplicate clicks
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';            // loading indicator
+  try {
+    const res  = await fetch('/api/test-notification', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(data.message || 'Test notification sent.', 'success', 'Sent');
+    } else {
+      showToast(data.detail || 'Failed to send test notification.', 'error');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
 /* ── Settings / Config ──────────────────────────────────────── */
 async function loadConfig() {
   const editor    = document.getElementById('config-editor');
