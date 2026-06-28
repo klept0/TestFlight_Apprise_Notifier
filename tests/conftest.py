@@ -5,7 +5,22 @@ per-test temp directory so the suite never touches the repo's ``data/``
 directory, and starts each test from a clean in-memory state.
 """
 
+import enum
+
 import pytest
+
+
+def pytest_pycollect_makeitem(collector, name, obj):
+    """Skip collecting imported Enum classes as test classes.
+
+    ``utils.testflight.TestFlightStatus`` is an Enum imported into several test
+    modules; its name matches pytest's default ``Test*`` class pattern, which
+    triggers a ``PytestCollectionWarning``. Enums are never test classes, so
+    tell pytest to collect nothing for them.
+    """
+    if isinstance(obj, type) and issubclass(obj, enum.Enum):
+        return []
+    return None
 
 
 @pytest.fixture(autouse=True)
