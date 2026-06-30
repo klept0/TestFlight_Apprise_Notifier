@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ ui_theme }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Dashboard for monitoring TestFlight beta availability and sending Apprise notifications.">
+  <title>TestFlight Apprise Notifier</title>
+
+  <!-- Mobile / PWA -->
+  <meta name="theme-color" id="theme-color-meta" content="{% if ui_theme == 'light' %}#f3f4f6{% else %}#0d1117{% endif %}">
+  <meta name="color-scheme" content="dark light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TF Notifier">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <nav class="sidebar" id="sidebar" aria-label="Main navigation">
+    <div class="sidebar-brand">
+      <span class="brand-icon" aria-hidden="true">✈</span>
+      <span class="brand-name">TF Notifier</span>
+    </div>
+
+    <ul class="sidebar-nav" role="list">
+      <li>
+        <button class="nav-item active" data-section="dashboard" aria-current="page">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M2 4a2 2 0 012-2h3a2 2 0 012 2v3a2 2 0 01-2 2H4a2 2 0 01-2-2V4zM11 4a2 2 0 012-2h3a2 2 0 012 2v3a2 2 0 01-2 2h-3a2 2 0 01-2-2V4zM2 13a2 2 0 012-2h3a2 2 0 012 2v3a2 2 0 01-2 2H4a2 2 0 01-2-2v-3zM11 13a2 2 0 012-2h3a2 2 0 012 2v3a2 2 0 01-2 2h-3a2 2 0 01-2-2v-3z"/>
+          </svg>
+          <span class="nav-text">Dashboard</span>
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-section="ids">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm1 8a1 1 0 100 2h6a1 1 0 100-2H7zm1-3a1 1 0 011-1h3a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"/>
+          </svg>
+          <span class="nav-text">TestFlight IDs</span>
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-section="urls">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+          </svg>
+          <span class="nav-text">Apprise URLs</span>
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-section="settings">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/>
+          </svg>
+          <span class="nav-text">Settings</span>
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-section="logs">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
+          </svg>
+          <span class="nav-text">Logs</span>
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-section="library">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M2 5a2 2 0 012-2h3.28a1 1 0 01.948.684l.32.948a1 1 0 00.948.684H16a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/>
+          </svg>
+          <span class="nav-text">Library</span>
+        </button>
+      </li>
+      <li>
+        <button class="nav-item" data-section="updates">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+          <span class="nav-text">Updates</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <span class="version-badge">v{{ version }}</span>
+    </div>
+  </nav>
+
+  <!-- ── Main Wrapper ──────────────────────────────────────── -->
+  <div class="main-wrapper">
+
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title" id="page-title">Dashboard</h1>
+      </div>
+      <div class="topbar-right">
+        <div class="status-indicator">
+          <span class="status-dot" title="Running"></span>
+          <span id="uptime-display" class="text-muted text-sm">{{ uptime_str }}</span>
+        </div>
+        <button class="theme-btn" id="theme-toggle" aria-label="Toggle light/dark theme">
+          <svg id="theme-icon-moon" width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+          </svg>
+          <svg id="theme-icon-sun" width="15" height="15" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="display:none;">
+            <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="content" id="main-content">
+
+      <!-- ═══════════════════════════════════
+           Dashboard Section
+           ═══════════════════════════════════ -->
+      <section id="section-dashboard" class="section active" aria-labelledby="title-dashboard">
+        <h2 id="title-dashboard" class="sr-only">Dashboard</h2>
+
+        <!-- Status cards -->
+        <div class="card-grid">
+          <!-- Bot Status -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Bot Status</h3>
+              <span class="badge badge-success">Running</span>
+            </div>
+            <div class="card-body">
+              <div class="stat-row">
+                <span class="stat-label">Version</span>
+                <span class="stat-value">v{{ version }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Uptime</span>
+                <span class="stat-value" id="uptime-str">{{ uptime_str }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Monitoring -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Monitoring</h3>
+            </div>
+            <div class="card-body">
+              <div class="stat-row">
+                <span class="stat-label">TestFlight IDs</span>
+                <span class="stat-value"><span id="id-count" class="badge badge-info">{{ id_count }}</span></span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Apprise URLs</span>
+                <span class="stat-value"><span id="url-count" class="badge badge-info">{{ url_count }}</span></span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Check Interval</span>
+                <span class="stat-value">{{ "%.1f"|format(sleep_time_s) }}s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Heartbeat -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Heartbeat</h3>
+              {% if heartbeat_hours > 0 %}
+                <span class="badge badge-success">Active</span>
+              {% else %}
+                <span class="badge badge-neutral">Disabled</span>
+              {% endif %}
+            </div>
+            <div class="card-body">
+              <div class="stat-row">
+                <span class="stat-label">Interval</span>
+                <span class="stat-value">
+                  {% if heartbeat_hours > 0 %}{{ heartbeat_hours }}h{% else %}Off{% endif %}
+                </span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Update Checker</span>
+                <span class="stat-value">
+                  {% if enable_update_checker %}
+                    <span class="badge badge-success">Enabled</span>
+                  {% else %}
+                    <span class="badge badge-neutral">Disabled</span>
+                  {% endif %}
+                </span>
+              </div>
+              <div class="stat-row">
+                <span class="stat-label">Always Notify Open</span>
+                <span class="stat-value">
+                  {% if always_notify_open %}
+                    <span class="badge badge-info">Yes</span>
+                  {% else %}
+                    <span class="badge badge-neutral">No</span>
+                  {% endif %}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Metrics -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Metrics</h3>
+              <button class="btn-icon" onclick="refreshMetrics()" aria-label="Refresh metrics" title="Refresh">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+              </button>
+            </div>
+            <div class="card-body" id="metrics-content">
+              <div class="metrics-grid">
+                <div class="metric-item">
+                  <div class="metric-value" id="metric-total">—</div>
+                  <div class="metric-label">Total Checks</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value" id="metric-success">—</div>
+                  <div class="metric-label">Successful</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value" id="metric-cpm">—</div>
+                  <div class="metric-label">Checks / min</div>
+                </div>
+                <div class="metric-item">
+                  <div class="metric-value" id="metric-uptime">—</div>
+                  <div class="metric-label">Uptime (h)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="card control-card">
+          <div class="card-header">
+            <h3>Application Controls</h3>
+          </div>
+          <div class="card-body">
+            <button class="btn btn-danger" onclick="confirmAction('stop', 'Stop Application', 'This will shut down the notifier. You will need to restart it manually.')">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="12" height="12" rx="2"/></svg>
+              Stop Application
+            </button>
+            <button class="btn btn-warning" onclick="confirmAction('restart', 'Restart Application', 'The application will reload. The dashboard will reconnect automatically.')">
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+              Restart Application
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           TestFlight IDs Section
+           ═══════════════════════════════════ -->
+      <section id="section-ids" class="section" aria-labelledby="title-ids">
+        <div class="section-intro">
+          <h2 id="title-ids">TestFlight IDs</h2>
+          <p>Manage the TestFlight beta IDs being monitored for status changes.</p>
+        </div>
+
+        <!-- Add ID -->
+        <div class="card">
+          <div class="card-header"><h3>Add TestFlight ID</h3></div>
+          <div class="card-body">
+            <div class="input-row">
+              <label for="new-tf-id" class="sr-only">TestFlight ID</label>
+              <input type="text" id="new-tf-id" class="input" placeholder="Enter TestFlight ID (e.g. abc12345)" autocomplete="off" spellcheck="false">
+              <button class="btn btn-primary" id="add-id-btn" onclick="validateAndAddId()">Validate &amp; Add</button>
+            </div>
+            <div id="add-id-status" class="status-msg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <!-- Current IDs -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Monitored IDs</h3>
+            <button class="btn-icon" onclick="refreshIds()" aria-label="Refresh ID list" title="Refresh">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+            </button>
+          </div>
+          <div id="ids-list" class="item-list">
+            <div class="empty-state">
+              <div class="empty-state-icon">📱</div>
+              <div class="empty-state-text">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           Apprise URLs Section
+           ═══════════════════════════════════ -->
+      <section id="section-urls" class="section" aria-labelledby="title-urls">
+        <div class="section-intro">
+          <h2 id="title-urls">Apprise URLs</h2>
+          <p>Manage notification endpoints. Supports Discord, Slack, Telegram, and 80+ other services.</p>
+        </div>
+
+        <!-- Add URL -->
+        <div class="card">
+          <div class="card-header"><h3>Add Apprise URL</h3></div>
+          <div class="card-body">
+            <div class="input-row">
+              <label for="new-apprise-url" class="sr-only">Apprise URL</label>
+              <input type="text" id="new-apprise-url" class="input" placeholder="e.g. discord://webhook_id/token" autocomplete="off" spellcheck="false">
+              <button class="btn btn-primary" id="add-url-btn" onclick="validateAndAddUrl()">Validate &amp; Add</button>
+            </div>
+            <div id="add-url-status" class="status-msg" role="status" aria-live="polite"></div>
+            <div class="settings-save-bar">
+              <button class="btn btn-secondary" id="test-notify-btn" onclick="sendTestNotification()">Send Test Notification</button>
+              <span class="text-muted text-sm">Sends a test message to all configured destinations.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Current URLs -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Configured URLs</h3>
+            <button class="btn-icon" onclick="refreshUrls()" aria-label="Refresh URL list" title="Refresh">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+            </button>
+          </div>
+          <div id="urls-list" class="item-list">
+            <div class="empty-state">
+              <div class="empty-state-icon">🔔</div>
+              <div class="empty-state-text">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           Settings Section
+           ═══════════════════════════════════ -->
+      <section id="section-settings" class="section" aria-labelledby="title-settings">
+        <div class="section-intro">
+          <h2 id="title-settings">Settings</h2>
+          <p>Configure notification behaviour and edit your environment configuration.</p>
+        </div>
+
+        <!-- Quick toggles -->
+        <div class="card">
+          <div class="card-header"><h3>Notification Settings</h3></div>
+          <div class="card-body">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-label">Default Theme</div>
+                <div class="toggle-desc">Sets the theme for new visitors. Per-browser overrides are saved automatically when the toggle is clicked.</div>
+              </div>
+              <select id="select-ui-theme" class="input" style="width:auto;" aria-label="Default theme">
+                <option value="dark"  {% if ui_theme == 'dark'  %}selected{% endif %}>Dark</option>
+                <option value="light" {% if ui_theme == 'light' %}selected{% endif %}>Light</option>
+              </select>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-label">Enable Update Checker</div>
+                <div class="toggle-desc">Periodically check GitHub for new versions. Disable to suppress version-check network calls.</div>
+              </div>
+              <label class="toggle-switch" aria-label="Enable update checker">
+                <input type="checkbox" id="toggle-update-checker" {% if enable_update_checker %}checked{% endif %}>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-label">Always Notify on Open</div>
+                <div class="toggle-desc">Send a notification on every check when a TestFlight is OPEN, not just when the status changes.</div>
+              </div>
+              <label class="toggle-switch" aria-label="Always notify on open">
+                <input type="checkbox" id="toggle-always-notify" {% if always_notify_open %}checked{% endif %}>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+
+            <div class="settings-save-bar">
+              <button class="btn btn-primary" onclick="saveToggles()">Save Settings</button>
+              <div id="toggle-status" class="status-msg" role="status" aria-live="polite"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- .env Editor -->
+        <div class="card">
+          <div class="card-header">
+            <h3>Environment Configuration</h3>
+            <span class="card-header-meta">.env file</span>
+          </div>
+          <div class="card-body">
+            <p class="text-muted text-sm mb-2">Edit raw environment variables. A backup is created automatically on each save. Changes take effect after a restart.</p>
+            <label for="config-editor" class="sr-only">Environment configuration file content</label>
+            <textarea id="config-editor" class="code-editor" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Loading configuration…"></textarea>
+            <div class="btn-group mt-2">
+              <button class="btn btn-secondary" onclick="loadConfig()">
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+                Reload
+              </button>
+              <button class="btn btn-primary" onclick="saveConfig()">
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293z"/></svg>
+                Save
+              </button>
+              <button class="btn btn-warning" onclick="saveAndRestart()">
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293z"/></svg>
+                Save &amp; Restart
+              </button>
+            </div>
+            <div id="config-status" class="status-msg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <!-- Import / Export -->
+        <div class="card">
+          <div class="card-header"><h3>Import / Export Configuration</h3></div>
+          <div class="card-body">
+            <p class="text-muted text-sm mb-2">Export your monitored TestFlight IDs and settings to a <code>config.json</code> file (no secrets). Import replaces them; restart to apply.</p>
+            <div class="btn-group">
+              <button class="btn btn-secondary" onclick="exportConfig()">Export Config</button>
+              <button class="btn btn-secondary" onclick="triggerImportConfig()">Import Config</button>
+              <input type="file" id="import-config-file" accept="application/json,.json" style="display:none" onchange="importConfig(this)">
+            </div>
+            <div id="import-export-status" class="status-msg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           Logs Section
+           ═══════════════════════════════════ -->
+      <section id="section-logs" class="section" aria-labelledby="title-logs">
+        <div class="card">
+          <div class="card-header">
+            <h3 id="title-logs">Recent Activity</h3>
+            <div class="log-controls">
+              <label for="log-limit" class="sr-only">Number of log entries</label>
+              <select id="log-limit" class="input" style="width:auto;" onchange="refreshLogs()">
+                <option value="20">Last 20</option>
+                <option value="50" selected>Last 50</option>
+                <option value="100">Last 100</option>
+              </select>
+              <button class="btn-icon" onclick="refreshLogs()" aria-label="Refresh logs" title="Refresh">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+              </button>
+              <label class="toggle-switch" aria-label="Auto-refresh logs" title="Auto-refresh every 15s" style="width:34px;height:18px;">
+                <input type="checkbox" id="auto-refresh-logs" checked onchange="toggleAutoRefreshLogs()">
+                <span class="toggle-track"></span>
+              </label>
+              <span class="text-muted text-sm">Auto</span>
+            </div>
+          </div>
+          <div id="logs-container" class="logs-container" aria-live="polite" aria-label="Application logs">
+            <div class="empty-state">
+              <div class="empty-state-text">Loading logs…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           Library Section
+           ═══════════════════════════════════ -->
+      <section id="section-library" class="section" aria-labelledby="title-library">
+        <div class="section-header">
+          <h2 id="title-library">Library</h2>
+          <p class="text-muted">Apps you have removed from monitoring are archived here. They are never checked and never send notifications.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>History</h3>
+            <div class="log-controls">
+              <input type="search" id="library-search" class="input" style="width:auto;" placeholder="Search…" oninput="renderLibrary()">
+              <label for="library-sort" class="sr-only">Sort by</label>
+              <select id="library-sort" class="input" style="width:auto;" onchange="renderLibrary()">
+                <option value="archived" selected>Recently archived</option>
+                <option value="name">App name</option>
+              </select>
+              <button class="btn btn-sm btn-danger" onclick="clearLibrary()">Clear All</button>
+              <button class="btn-icon" onclick="refreshLibrary()" aria-label="Refresh library" title="Refresh">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="library-list" class="item-list">
+            <div class="empty-state">
+              <div class="empty-state-icon">📚</div>
+              <div class="empty-state-text">Loading…</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════
+           Updates Section
+           ═══════════════════════════════════ -->
+      <section id="section-updates" class="section" aria-labelledby="title-updates">
+        <div class="section-intro">
+          <h2 id="title-updates">Updates</h2>
+          <p>Check for and apply updates from GitHub. Only available for bare-metal installs.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>Check for Updates</h3></div>
+          <div class="card-body">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-label">Branch</div>
+                <div class="toggle-desc">Select a branch to check against.</div>
+              </div>
+              <select id="update-branch-select" class="input" style="width:auto;" aria-label="Branch to check">
+                <option value="main">main</option>
+                <option value="pre-release">pre-release</option>
+              </select>
+            </div>
+            <div class="btn-group mt-2">
+              <button class="btn btn-secondary" id="check-update-btn" onclick="checkUpdateForBranch()">Check for Updates</button>
+            </div>
+            <div id="update-check-status" class="status-msg" role="status" aria-live="polite"></div>
+            <div id="update-result" class="hidden"></div>
+          </div>
+        </div>
+
+        <div class="card hidden" id="update-apply-card">
+          <div class="card-header"><h3>Apply Update</h3></div>
+          <div class="card-body">
+            <p class="text-muted text-sm mb-2" id="update-apply-desc"></p>
+            <div class="btn-group">
+              <button class="btn btn-warning" id="apply-update-btn" onclick="applyUpdate()">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                </svg>
+                Apply Update &amp; Restart
+              </button>
+            </div>
+            <div id="update-apply-status" class="status-msg" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div><!-- /.main-wrapper -->
+</div><!-- /.app-layout -->
+
+<!-- ── Toast Container ─────────────────────────────────────── -->
+<div id="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+<!-- ── Confirm Modal ───────────────────────────────────────── -->
+<div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="modal">
+    <h3 id="confirm-title">Confirm</h3>
+    <p id="confirm-message">Are you sure?</p>
+    <div class="btn-group">
+      <button id="confirm-cancel" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>const SERVER_DEFAULT_THEME = "{{ ui_theme }}";</script>
+<script src="/static/js/main.js"></script>
+</body>
+</html>

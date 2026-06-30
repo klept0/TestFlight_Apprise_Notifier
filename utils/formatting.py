@@ -192,8 +192,10 @@ def format_link(base_url: str, tf_id: str) -> str:
     return f"{base_url.rstrip('/')}/{tf_id.lstrip('/')}"
 
 
-async def format_notification_link(base_url: str, tf_id: str) -> str:
-    app_name = await get_app_name(base_url, tf_id)
+async def format_notification_link(
+    base_url: str, tf_id: str, name_override: str = None
+) -> str:
+    app_name = name_override or await get_app_name(base_url, tf_id)
     return f"Slots available for {app_name}: {format_link(base_url, tf_id)}"
 
 

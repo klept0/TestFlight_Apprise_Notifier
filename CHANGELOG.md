@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Security
+- **Optional dashboard authentication** - HTTP Basic auth gated by `WEB_USERNAME` / `WEB_PASSWORD`. When set, all routes except `/api/health` and `/static` require credentials; when unset, behavior is unchanged. Recommended whenever the dashboard is exposed beyond localhost.
+- **Localhost by default** - `FASTAPI_HOST` now defaults to `127.0.0.1` instead of `0.0.0.0`, so the dashboard (which can read/write `.env` and stop/restart the process) is not exposed on all interfaces by accident. A startup warning is logged when bound to a non-loopback host without credentials.
+
+### Bug Fixes
+- **Stop/Restart buttons** - The dashboard's confirm dialog cleared its callback before invoking it, so confirming Stop/Restart closed the modal without doing anything. The action now runs as expected.
+- **Heartbeat disable** - `HEARTBEAT_INTERVAL=0` is documented as "disable", but the code did `sleep(0)` in a loop and busy-spun, flooding notifications. It now disables the heartbeat as documented.
+- **Missing `jinja2` dependency** - Added `jinja2` to `requirements.txt`; the dashboard's `Jinja2Templates` need it, but a fresh install previously crashed on startup with `ImportError`.
+- **Docker healthcheck** - Replaced the `requests`-based healthcheck (an undeclared dependency that left the container permanently `unhealthy`) with a stdlib `urllib` check that exits non-zero on failure.
+- **Graceful shutdown** - Signal handlers were registered at import time on an event loop that `asyncio.run()` never used, so `SIGTERM` (e.g. `docker stop`) skipped cleanup. They are now attached to the running loop in `async_main()`.
+- **Restart from the dashboard** - Now re-executes in place via `os.execv` instead of spawning a child process. The previous approach spawned a child that died with the container (so restart did nothing under Docker). Also warns when `FASTAPI_PORT` is unset, since the dashboard could otherwise return on a different random port.
+
+### Improvements
+- **Mobile / PWA polish** - Added a web manifest and app icon so the dashboard is installable ("Add to Home Screen"), a `theme-color` that tracks the light/dark toggle, iOS/Android web-app meta tags with notch-safe areas, and `prefers-reduced-motion` support.
+- **Docker Compose** - Mount `.env` read-write so the in-app config editor and add/remove ID/URL features persist (the previous `:ro` mount silently broke them), removed the obsolete `version:` key, and documented the new auth variables.
+- **Non-root container** - The Docker image now runs as an unprivileged user (uid 10001) instead of root.
+- **Non-blocking notifications** - The heartbeat loop and the stop/restart endpoints now send notifications via the async helper so a slow notification service no longer stalls the event loop.
+- **Typed request models** - The TestFlight ID and Apprise URL endpoints now use Pydantic request models instead of manual JSON parsing, giving proper request validation and accurate schemas in the auto-generated API docs at `/docs`.
+- **Module split** - Broke up the `main.py` monolith into focused modules (behaviour unchanged): `config.py` (environment/config), `state.py` (shared runtime state + business logic — Apprise object, HTTP session, ID/URL management, validation, GitHub update checker, `.env` persistence), `routes.py` (all web/API endpoints as a FastAPI `APIRouter`), plus `utils/metrics.py`, `utils/service_icons.py`, and `utils/web_logging.py`. `main.py` shrank from ~2,180 to ~470 lines and now only wires the app together (FastAPI app, auth, lifespan, the monitor loop, and the entrypoint).
+- **Cleanup** - Removed duplicate `_http_session`, `_session_lock`, and `_circuit_breaker_timeout` global declarations, the unused circuit-breaker helpers (`is_circuit_breaker_open` / `record_request_*`, never wired into the request path — the `/api/health` `circuit_breaker` field is gone), and the unused `check_multiple_testflight_urls` utility.
+
+### Tests
+- **API coverage** - Added `tests/test_api.py` (TestClient) covering the health/metrics/list endpoints, log-limit validation, the add/remove ID and URL flows, and the optional HTTP Basic auth.
+
+---
+
 ## v1.0.5e - October 3, 2025
 
 ### New Features

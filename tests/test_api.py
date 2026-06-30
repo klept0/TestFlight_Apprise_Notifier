@@ -1,0 +1,366 @@
+"""
+API-level tests for the FastAPI dashboard.
+
+These drive the app via Starlette's TestClient and avoid real network calls by
+monkeypatching the TestFlight validation and the .env writer / notifier. They
+cover the read endpoints, input validation, the add/remove flows, and the
+optional HTTP Basic auth.
+"""
+
+import asyncio
+import importlib
+import json
+import os
+
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+# The app reads required config at import time, so set it before importing.
+os.environ.setdefault("APPRISE_URL", "json://localhost/")
+os.environ.setdefault("ENABLE_UPDATE_CHECKER", "false")
+# Default import: auth disabled (the auth test reloads with it enabled).
+os.environ.pop("WEB_USERNAME", None)
+os.environ.pop("WEB_PASSWORD", None)
+
+import main  # noqa: E402
+import state  # noqa: E402
+import routes  # noqa: E402
+
+
+@pytest.fixture
+def client():
+    # No context manager -> lifespan startup is skipped, so no background
+    # update task / outbound calls are spawned during tests.
+    c = TestClient(main.app)
+    # Obtain a CSRF cookie and echo it on subsequent state-changing requests.
+    c.get("/")
+    token = c.cookies.get("csrf_token")
+    if token:
+        c.headers.update({"X-CSRF-Token": token})
+    return c
+
+
+# ── Read endpoints ──────────────────────────────────────────────
+def test_health_is_open_and_well_formed(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "healthy"
+    assert "version" in body and "uptime_seconds" in body
+
+
+def test_metrics_shape(client):
+    r = client.get("/api/metrics")
+    assert r.status_code == 200
+    assert "total_checks" in r.json()
+
+
+def test_list_ids(client):
+    r = client.get("/api/testflight-ids")
+    assert r.status_code == 200
+    assert "testflight_ids" in r.json()
+
+
+def test_apprise_urls_list(client):
+    r = client.get("/api/apprise-urls")
+    assert r.status_code == 200
+    assert "apprise_urls" in r.json()
+
+
+# ── Input validation ────────────────────────────────────────────
+def test_logs_limit_validation(client):
+    assert client.get("/api/logs?limit=0").status_code == 400
+    assert client.get("/api/logs?limit=100000").status_code == 400
+    r = client.get("/api/logs?limit=5")
+    assert r.status_code == 200 and "logs" in r.json()
+
+
+def test_validate_bad_format_does_not_hit_network(client):
+    # An invalid format is rejected before any HTTP request is made.
+    r = client.post("/api/testflight-ids/validate", json={"id": "!!bad!!"})
+    assert r.status_code == 200
+    assert r.json()["valid"] is False
+
+
+# ── Add / remove flows (network + .env writes stubbed) ──────────
+def test_add_and_remove_testflight_id(client, monkeypatch):
+    async def fake_validate(tf_id):
+        return True, "ok"
+
+    monkeypatch.setattr(routes, "validate_testflight_id", fake_validate)
+    monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
+    monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
+
+    test_id = "abcd1234"
+    state.current_id_list[:] = [x for x in state.current_id_list if x != test_id]
+
+    r = client.post("/api/testflight-ids", json={"id": test_id})
+    assert r.status_code == 200, r.text
+    assert test_id in r.json()["testflight_ids"]
+
+    r = client.delete(f"/api/testflight-ids/{test_id}")
+    assert r.status_code == 200
+    assert test_id not in r.json()["testflight_ids"]
+
+
+def test_remove_unknown_id_404(client):
+    r = client.delete("/api/testflight-ids/does-not-exist")
+    assert r.status_code == 404
+
+
+def test_add_and_remove_apprise_url(client, monkeypatch):
+    monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
+    monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
+
+    url = "discord://aaaa/bbbb"
+    state.current_apprise_urls[:] = [u for u in state.current_apprise_urls if u != url]
+
+    r = client.post("/api/apprise-urls", json={"url": url})
+    assert r.status_code == 200, r.text
+    items = r.json()["apprise_urls"]
+    url_id = state.apprise_url_id(url)
+    assert any(i["id"] == url_id for i in items)
+    assert url in state.current_apprise_urls  # raw value kept in config storage
+
+    # Remove by the stable non-secret id.
+    r = client.request("DELETE", f"/api/apprise-urls/{url_id}")
+    assert r.status_code == 200
+    assert url not in state.current_apprise_urls
+
+
+def test_apprise_urls_response_exposes_no_raw_url(client, monkeypatch):
+    """Issue 1: the API must not return the raw secret-bearing URL."""
+    monkeypatch.setattr(state, "update_env_file", lambda *a, **k: True)
+    monkeypatch.setattr(state, "send_notification", lambda *a, **k: None)
+
+    secret = "discord://999999/TopSecretToken12345"
+    state.current_apprise_urls[:] = [secret]
+
+    body = client.get("/api/apprise-urls").json()
+    item = body["apprise_urls"][0]
+    assert "url" not in item  # no raw URL field
+    assert item["id"] == state.apprise_url_id(secret)  # stable id for removal
+    assert "TopSecretToken12345" not in item["display_url"]  # display masked
+    # The secret must not appear anywhere in the response.
+    assert "TopSecretToken12345" not in json.dumps(body)
+
+
+# ── Test notification (Runbook 2) ───────────────────────────────
+def test_test_notification_success(client, monkeypatch):
+    async def fake_send(urls):
+        return (1, 0)  # one delivered
+
+    monkeypatch.setattr(routes, "send_test_notification", fake_send)
+    saved = list(state.current_apprise_urls)
+    try:
+        state.current_apprise_urls[:] = ["json://localhost/"]
+        r = client.post("/api/test-notification")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["success"] is True
+        assert body["sent"] == 1
+    finally:
+        state.current_apprise_urls[:] = saved
+
+
+def test_test_notification_all_fail(client, monkeypatch):
+    async def fake_send(urls):
+        return (0, 2)  # every destination failed
+
+    monkeypatch.setattr(routes, "send_test_notification", fake_send)
+    saved = list(state.current_apprise_urls)
+    try:
+        state.current_apprise_urls[:] = ["json://a/", "json://b/"]
+        r = client.post("/api/test-notification")
+        assert r.status_code == 502
+        assert "fail" in r.json()["detail"].lower()
+    finally:
+        state.current_apprise_urls[:] = saved
+
+
+def test_test_notification_no_destinations(client):
+    saved = list(state.current_apprise_urls)
+    try:
+        state.current_apprise_urls[:] = []
+        r = client.post("/api/test-notification")
+        assert r.status_code == 400
+    finally:
+        state.current_apprise_urls[:] = saved
+
+
+def test_test_notification_requires_csrf():
+    # State-changing POST with no CSRF token is rejected (authorization).
+    c = TestClient(main.app)
+    assert c.post("/api/test-notification").status_code == 403
+
+
+# ── Hardened .env save (Issue 2) ────────────────────────────────
+def test_save_config_atomic_with_backup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("APPRISE_URL=discord://a/b\n# old comment\n")
+
+    new_content = "APPRISE_URL=discord://c/d\nID_LIST=abc123\n# new comment\n"
+    res = asyncio.run(routes.save_config(content=new_content))
+
+    assert res["success"] is True
+    # Content preserved exactly.
+    assert env.read_text() == new_content
+    # Backup holds the previous version.
+    backup = tmp_path / ".env.backup"
+    assert backup.exists()
+    assert "discord://a/b" in backup.read_text()
+    # No leftover temp files.
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_save_config_aborts_on_empty(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    original = "APPRISE_URL=discord://a/b\n"
+    env.write_text(original)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.save_config(content="   "))
+    assert exc.value.status_code == 400
+    assert env.read_text() == original  # untouched
+
+
+def test_save_config_aborts_on_null_byte(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    original = "APPRISE_URL=discord://a/b\n"
+    env.write_text(original)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.save_config(content="APPRISE_URL=x\x00y\n"))
+    assert exc.value.status_code == 400
+    assert env.read_text() == original
+
+
+# ── Hardened .env restore ───────────────────────────────────────
+def test_restore_config_atomic(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("ID_LIST=current,\n")
+    restored = "ID_LIST=restored,\nAPPRISE_URL=discord://a/b,\n"
+    backup = tmp_path / ".env.backup"
+    backup.write_text(restored)
+
+    res = asyncio.run(routes.restore_config())
+    assert res["success"] is True
+    # .env now matches the backup exactly.
+    assert env.read_text() == restored
+    assert "restored" in res["content"]
+    # The backup (the source) is left untouched, and no temp files remain.
+    assert backup.read_text() == restored
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_restore_config_no_backup_404(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = "ID_LIST=keep,\n"
+    (tmp_path / ".env").write_text(original)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(routes.restore_config())
+    assert exc.value.status_code == 404
+    # .env untouched when there is no backup to restore.
+    assert (tmp_path / ".env").read_text() == original
+
+
+# ── CSRF protection ─────────────────────────────────────────────
+def test_csrf_blocks_state_change_without_token():
+    # Fresh client with no CSRF cookie/header -> state change rejected.
+    c = TestClient(main.app)
+    assert c.post("/api/testflight-ids/validate", json={"id": "abcd1234"}).status_code == 403
+    assert c.delete("/api/testflight-ids/anything").status_code == 403
+    assert c.post("/api/control/stop").status_code == 403
+
+
+def test_csrf_does_not_affect_get():
+    c = TestClient(main.app)
+    assert c.get("/api/health").status_code == 200
+    assert c.get("/api/testflight-ids").status_code == 200
+    assert c.get("/api/metrics").status_code == 200
+
+
+def test_csrf_allows_state_change_with_token(client):
+    # The `client` fixture already carries a valid CSRF cookie + header.
+    r = client.post("/api/testflight-ids/validate", json={"id": "!!bad!!"})
+    assert r.status_code == 200
+    assert r.json()["valid"] is False
+
+
+# ── Optional HTTP Basic auth ────────────────────────────────────
+def test_auth_enforced_when_configured(monkeypatch):
+    monkeypatch.setenv("WEB_USERNAME", "user")
+    monkeypatch.setenv("WEB_PASSWORD", "pass")
+    monkeypatch.setenv("APPRISE_URL", "json://localhost/")
+    try:
+        reloaded = importlib.reload(main)
+        c = TestClient(reloaded.app)
+        # Health stays open for the Docker healthcheck.
+        assert c.get("/api/health").status_code == 200
+        # A protected endpoint requires credentials.
+        assert c.get("/api/config").status_code == 401
+        assert c.get("/api/config", auth=("user", "pass")).status_code == 200
+        assert c.get("/api/config", auth=("user", "wrong")).status_code == 401
+    finally:
+        # Restore the no-auth module state for any later tests.
+        monkeypatch.delenv("WEB_USERNAME", raising=False)
+        monkeypatch.delenv("WEB_PASSWORD", raising=False)
+        importlib.reload(main)
+
+
+# ── Auth required on a public bind address ──────────────────────
+def test_public_host_without_credentials_exits(monkeypatch):
+    """A non-loopback host with no credentials must abort startup (exit 1)."""
+    monkeypatch.setenv("FASTAPI_HOST", "0.0.0.0")
+    monkeypatch.setattr(main, "WEB_USERNAME", "")
+    monkeypatch.setattr(main, "WEB_PASSWORD", "")
+    with pytest.raises(SystemExit) as exc:
+        main.validate_auth_config()
+    assert exc.value.code == 1
+
+
+def test_public_host_with_credentials_ok(monkeypatch):
+    """A non-loopback host is allowed when both credentials are set."""
+    monkeypatch.setenv("FASTAPI_HOST", "0.0.0.0")
+    monkeypatch.setattr(main, "WEB_USERNAME", "user")
+    monkeypatch.setattr(main, "WEB_PASSWORD", "pass")
+    # Should not raise.
+    main.validate_auth_config()
+
+
+def test_loopback_host_without_credentials_ok(monkeypatch):
+    """Auth is optional on localhost, even with no credentials."""
+    monkeypatch.setattr(main, "WEB_USERNAME", "")
+    monkeypatch.setattr(main, "WEB_PASSWORD", "")
+    for host in ("127.0.0.1", "localhost", "::1"):
+        monkeypatch.setenv("FASTAPI_HOST", host)
+        main.validate_auth_config()  # should not raise
+
+
+# ── Disabled heartbeat must not exit immediately ────────────────
+def test_disabled_heartbeat_waits_for_shutdown(monkeypatch):
+    """With HEARTBEAT_INTERVAL=0 the heartbeat task must stay alive until
+    shutdown_event is set, so it doesn't trip async_main's FIRST_COMPLETED."""
+    monkeypatch.setattr(main, "HEARTBEAT_INTERVAL", 0)
+
+    async def run():
+        ev = asyncio.Event()
+        monkeypatch.setattr(main, "shutdown_event", ev)
+
+        task = asyncio.create_task(main.heartbeat())
+        await asyncio.sleep(0.05)
+        # Must NOT have returned immediately.
+        assert not task.done()
+
+        # Setting shutdown lets it finish cleanly (no exception).
+        ev.set()
+        await asyncio.wait_for(task, timeout=1)
+        assert task.done() and task.exception() is None
+
+    asyncio.run(run())

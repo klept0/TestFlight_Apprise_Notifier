@@ -397,45 +397,6 @@ async def check_testflight_status(
         return result
 
 
-async def check_multiple_testflight_urls(
-    session: aiohttp.ClientSession, urls: list[str], timeout: int = 10
-) -> Dict[str, Dict]:
-    """
-    Check multiple TestFlight URLs concurrently.
-
-    Args:
-        session: Active aiohttp ClientSession for connection pooling
-        urls: List of TestFlight URLs to check
-        timeout: Request timeout in seconds (default: 10)
-
-    Returns:
-        Dictionary mapping URLs to their status results
-    """
-    import asyncio
-
-    # Create tasks for all URLs
-    tasks = [check_testflight_status(session, url, timeout) for url in urls]
-
-    # Execute concurrently
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Build result dictionary
-    result_dict = {}
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            # Handle exceptions from gather
-            result_dict[urls[i]] = {
-                "url": urls[i],
-                "status": TestFlightStatus.ERROR,
-                "status_text": "Error",
-                "error": str(result),
-            }
-        else:
-            result_dict[result["url"]] = result
-
-    return result_dict
-
-
 async def check_testflight_status_with_retry(
     session: aiohttp.ClientSession,
     url: str,
