@@ -995,14 +995,24 @@ def handle_shutdown_signal():
 def _perform_restart():
     """Replace the current process image with a fresh instance.
 
-    Using os.execv (rather than spawning a child via subprocess) keeps the
-    same PID, so it works both on bare metal and inside a container where the
-    app is PID 1 - a spawned child would die when the original process exits
-    and take the container down with it.
+    On Unix/macOS, os.execv keeps the same PID, which is required when the
+    app runs as PID 1 inside a container (a spawned child would be orphaned
+    when the parent exits).
+
+    On Windows, os.execv joins argv into a raw command line string without
+    quoting, so any space in the path (e.g. "TestFlight 2.0") causes the
+    argument to be split and Python fails to find the script. We use
+    subprocess.Popen + sys.exit instead, which correctly quotes the args.
     """
     import sys
+    import subprocess
 
     python_executable = sys.executable
     script_path = os.path.abspath(sys.argv[0])
     logging.info("Re-executing application for restart...")
-    os.execv(python_executable, [python_executable, script_path])
+
+    if os.name == "nt":
+        subprocess.Popen([python_executable, script_path])
+        sys.exit(0)
+    else:
+        os.execv(python_executable, [python_executable, script_path])
