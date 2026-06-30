@@ -40,6 +40,12 @@ _session_lock = threading.Lock()
 _last_update_check: Optional[Dict[str, Any]] = None
 _update_check_lock = threading.Lock()
 
+# Branch list cache (filtered to allowed branches only)
+_branches_cache: Optional[Dict[str, Any]] = None
+_branches_cache_lock = threading.Lock()
+_BRANCHES_CACHE_TTL = 900  # 15 minutes
+_ALLOWED_BRANCHES = ["main", "pre-release"]
+
 # Global metrics collector
 _metrics = MetricsCollector()
 
@@ -612,6 +618,215 @@ def remove_apprise_url(url: str) -> tuple[bool, str]:
             return True, "Apprise URL removed successfully"
         else:
             return False, "Failed to update .env file"
+
+
+def get_local_git_info() -> Dict[str, str]:
+    """Return the current local branch name and full commit SHA."""
+    import subprocess
+
+    info = {"branch": "unknown", "sha": "unknown"}
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            info["branch"] = r.stdout.strip()
+
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            info["sha"] = r.stdout.strip()
+    except Exception as e:
+        logging.debug(f"Could not get local git info: {e}")
+    return info
+
+
+async def get_github_branches() -> Dict[str, Any]:
+    """Fetch allowed branches from GitHub API with a 15-minute cache."""
+    global _branches_cache
+
+    with _branches_cache_lock:
+        if _branches_cache is not None:
+            if time.time() - _branches_cache["timestamp"] < _BRANCHES_CACHE_TTL:
+                return {"status": "cached", "branches": _branches_cache["branches"]}
+
+    try:
+        session = await get_http_session()
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TestFlight-Apprise-Notifier",
+        }
+
+        branches = []
+        for branch_name in _ALLOWED_BRANCHES:
+            api_url = (
+                f"https://api.github.com/repos/{GITHUB_REPO}/branches/{branch_name}"
+            )
+            async with session.get(api_url, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    branches.append({
+                        "name": branch_name,
+                        "sha": data["commit"]["sha"],
+                        "date": data["commit"]["commit"]["committer"]["date"],
+                        "message": (
+                            data["commit"]["commit"]["message"].split("\n")[0]
+                        ),
+                    })
+
+        with _branches_cache_lock:
+            _branches_cache = {"timestamp": time.time(), "branches": branches}
+
+        return {"status": "success", "branches": branches}
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "GitHub API timed out", "branches": []}
+    except Exception as e:
+        logging.error(f"Failed to fetch branches: {e}")
+        return {"status": "error", "message": str(e), "branches": []}
+
+
+async def check_update_for_branch(branch: str) -> Dict[str, Any]:
+    """Check for updates on a specific branch (always fresh, no cache)."""
+    import subprocess
+
+    if branch not in _ALLOWED_BRANCHES:
+        return {
+            "status": "error",
+            "message": f"Branch '{branch}' is not in the allowed list",
+        }
+
+    # Get local git state
+    local = get_local_git_info()
+    current_sha = local["sha"]
+    current_branch = local["branch"]
+
+    if current_sha == "unknown":
+        return {
+            "status": "error",
+            "message": (
+                "Could not determine local commit — git may not be available "
+                "or this is not a git repository"
+            ),
+        }
+
+    try:
+        session = await get_http_session()
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "TestFlight-Apprise-Notifier",
+        }
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/commits/{branch}"
+
+        async with session.get(api_url, headers=headers, timeout=10) as response:
+            if response.status != 200:
+                return {
+                    "status": "error",
+                    "message": f"GitHub API returned {response.status}",
+                    "checked_at": format_datetime(datetime.now()),
+                }
+
+            data = await response.json()
+            remote_sha_full = data.get("sha", "")
+            commit_date = (
+                data.get("commit", {}).get("committer", {}).get("date", "")
+            )
+            commit_message = (
+                data.get("commit", {}).get("message", "").split("\n")[0]
+            )
+            commit_url = data.get("html_url", "")
+
+            update_available = (
+                remote_sha_full != "" and current_sha != remote_sha_full
+            )
+
+            return {
+                "status": "success",
+                "branch": branch,
+                "current_sha": current_sha[:7],
+                "current_branch": current_branch,
+                "remote_sha": remote_sha_full[:7],
+                "remote_sha_full": remote_sha_full,
+                "update_available": update_available,
+                "latest_commit_message": commit_message,
+                "latest_commit_date": commit_date,
+                "commit_url": commit_url,
+                "checked_at": format_datetime(datetime.now()),
+            }
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "GitHub API timed out"}
+    except Exception as e:
+        logging.error(f"Branch update check failed: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+async def apply_update(branch: str) -> Dict[str, Any]:
+    """Pull the latest code from a branch via git and restart the service."""
+    import subprocess
+
+    if branch not in _ALLOWED_BRANCHES:
+        return {
+            "status": "error",
+            "message": f"Branch '{branch}' is not in the allowed list",
+        }
+
+    if os.path.exists("/.dockerenv"):
+        return {
+            "status": "docker",
+            "message": (
+                "Docker deployment detected — updates must be applied by "
+                "rebuilding and restarting the container."
+            ),
+        }
+
+    try:
+        r = subprocess.run(["git", "--version"], capture_output=True, timeout=5)
+        if r.returncode != 0:
+            return {"status": "error", "message": "git returned a non-zero exit code"}
+    except FileNotFoundError:
+        return {"status": "error", "message": "git is not installed or not on PATH"}
+    except Exception as e:
+        return {"status": "error", "message": f"git availability check failed: {e}"}
+
+    logging.info(f"Fetching latest commits from origin…")
+    try:
+        r = subprocess.run(
+            ["git", "fetch", "origin"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            return {
+                "status": "error",
+                "message": f"git fetch failed: {r.stderr.strip()}",
+            }
+    except Exception as e:
+        return {"status": "error", "message": f"git fetch error: {e}"}
+
+    logging.info(f"Resetting to origin/{branch}…")
+    try:
+        r = subprocess.run(
+            ["git", "reset", "--hard", f"origin/{branch}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            return {
+                "status": "error",
+                "message": f"git reset failed: {r.stderr.strip()}",
+            }
+    except Exception as e:
+        return {"status": "error", "message": f"git reset error: {e}"}
+
+    logging.info(f"Update to origin/{branch} complete. Scheduling restart…")
+    threading.Timer(1.5, _perform_restart).start()
+
+    return {
+        "status": "success",
+        "message": f"Updated to latest {branch}. Restarting in ~2 seconds…",
+    }
 
 
 async def check_github_updates(force: bool = False) -> Dict[str, Any]:

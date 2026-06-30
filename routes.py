@@ -21,10 +21,14 @@ from state import (
     add_testflight_id,
     app_start_time,
     apprise_url_id,
+    apply_update,
     check_github_updates,
+    check_update_for_branch,
     find_apprise_url_by_id,
     get_current_apprise_urls,
     get_current_id_list,
+    get_github_branches,
+    get_local_git_info,
     handle_shutdown_signal,
     remove_apprise_url,
     remove_testflight_id,
@@ -79,6 +83,12 @@ class BatchIdRequest(BaseModel):
 
     add: list[str] = Field(default_factory=list, description="IDs to add")
     remove: list[str] = Field(default_factory=list, description="IDs to remove")
+
+
+class UpdateApplyRequest(BaseModel):
+    """Body for applying an update from a specific branch."""
+
+    branch: str = Field(..., description="Branch to update from (main or pre-release)")
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -178,6 +188,34 @@ async def api_check_updates(force: bool = False):
         curl http://localhost:8080/api/updates?force=true
     """
     result = await check_github_updates(force=force)
+    return result
+
+
+@router.get("/api/updates/branches")
+async def api_get_branches():
+    """List available branches (main and pre-release) with their latest commit info."""
+    result = await get_github_branches()
+    local = get_local_git_info()
+    result["current_branch"] = local["branch"]
+    result["current_sha"] = local["sha"][:7] if local["sha"] != "unknown" else "unknown"
+    return result
+
+
+@router.get("/api/updates/check")
+async def api_check_update_for_branch(branch: str = "main"):
+    """Check for updates on a specific branch (always fresh, no cache)."""
+    result = await check_update_for_branch(branch)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/api/updates/apply")
+async def api_apply_update(payload: UpdateApplyRequest):
+    """Apply update from the specified branch and restart the service."""
+    result = await apply_update(payload.branch)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result["message"])
     return result
 
 

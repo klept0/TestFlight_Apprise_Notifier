@@ -63,6 +63,7 @@ const SECTION_TITLES = {
   settings:  'Settings',
   logs:      'Logs',
   library:   'Library',
+  updates:   'Updates',
 };
 
 function navigateTo(sectionId) {
@@ -101,6 +102,7 @@ function onSectionActivated(sectionId) {
   if (sectionId === 'settings')  loadConfig();
   if (sectionId === 'logs')      refreshLogs();
   if (sectionId === 'library')   refreshLibrary();
+  if (sectionId === 'updates')   initUpdates();
 }
 
 // Wire up nav buttons
@@ -797,6 +799,158 @@ function toggleAutoRefreshLogs() {
   } else {
     clearInterval(_logInterval);
     _logInterval = null;
+  }
+}
+
+/* ── Updates ────────────────────────────────────────────────── */
+let _pendingUpdateBranch = null;
+let _updateInitDone      = false;
+
+async function initUpdates() {
+  if (_updateInitDone) return;
+  _updateInitDone = true;
+
+  // Pre-select the dropdown to match the currently running branch
+  try {
+    const res  = await fetch('/api/updates/branches');
+    const data = await res.json();
+    const sel  = document.getElementById('update-branch-select');
+    if (sel && data.current_branch &&
+        ['main', 'pre-release'].includes(data.current_branch)) {
+      sel.value = data.current_branch;
+    }
+  } catch { /* ignore — dropdown stays on its default */ }
+}
+
+async function checkUpdateForBranch() {
+  const branch     = document.getElementById('update-branch-select').value;
+  const btn        = document.getElementById('check-update-btn');
+  const statusDiv  = document.getElementById('update-check-status');
+  const resultDiv  = document.getElementById('update-result');
+  const applyCard  = document.getElementById('update-apply-card');
+
+  btn.disabled = true;
+  setStatus(statusDiv, 'Checking…', 'info');
+  resultDiv.classList.add('hidden');
+  resultDiv.innerHTML = '';
+  applyCard.classList.add('hidden');
+  _pendingUpdateBranch = null;
+
+  try {
+    const res  = await fetch(`/api/updates/check?branch=${encodeURIComponent(branch)}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      setStatus(statusDiv, data.detail || 'Check failed.', 'error');
+      return;
+    }
+
+    setStatus(statusDiv, '', '');
+
+    const badge = data.update_available
+      ? '<span class="badge badge-warning">Update available</span>'
+      : '<span class="badge badge-success">Up to date</span>';
+
+    const commitDate = data.latest_commit_date
+      ? new Date(data.latest_commit_date).toLocaleString()
+      : '—';
+
+    resultDiv.innerHTML = `
+      <div class="stat-row" style="margin-top:12px">
+        <span class="stat-label">Status</span>
+        <span class="stat-value">${badge}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Local branch</span>
+        <span class="stat-value"><code>${escHtml(data.current_branch)}</code></span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Local commit</span>
+        <span class="stat-value"><code>${escHtml(data.current_sha)}</code></span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Remote branch</span>
+        <span class="stat-value"><code>${escHtml(data.branch)}</code></span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Remote commit</span>
+        <span class="stat-value"><code>${escHtml(data.remote_sha)}</code></span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Latest message</span>
+        <span class="stat-value">${escHtml(data.latest_commit_message)}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Committed</span>
+        <span class="stat-value text-muted">${escHtml(commitDate)}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Checked at</span>
+        <span class="stat-value text-muted">${escHtml(data.checked_at)}</span>
+      </div>`;
+    resultDiv.classList.remove('hidden');
+
+    if (data.update_available) {
+      _pendingUpdateBranch = branch;
+      document.getElementById('update-apply-desc').textContent =
+        `This will fetch the latest code from the "${branch}" branch and restart the service.` +
+        (branch === 'pre-release' ? ' Note: pre-release builds may be unstable.' : '');
+      applyCard.classList.remove('hidden');
+    }
+  } catch (e) {
+    setStatus(statusDiv, `Error: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function applyUpdate() {
+  if (!_pendingUpdateBranch) return;
+  const branch = _pendingUpdateBranch;
+
+  document.getElementById('confirm-title').textContent   = 'Apply Update & Restart';
+  document.getElementById('confirm-message').textContent =
+    `Pull the latest code from "${branch}" and restart the service? ` +
+    'Make sure your .env file is saved. The dashboard will reconnect automatically.';
+
+  const okBtn = document.getElementById('confirm-ok');
+  okBtn.className   = 'btn btn-warning';
+  okBtn.textContent = 'Apply & Restart';
+
+  _confirmCallback = () => doApplyUpdate(branch);
+
+  document.getElementById('modal-overlay').classList.remove('hidden');
+  document.getElementById('confirm-cancel').focus();
+}
+
+async function doApplyUpdate(branch) {
+  const statusDiv = document.getElementById('update-apply-status');
+  const applyBtn  = document.getElementById('apply-update-btn');
+  applyBtn.disabled = true;
+  setStatus(statusDiv, 'Applying update…', 'info');
+
+  try {
+    const res  = await fetch('/api/updates/apply', jsonPost({ branch }));
+    const data = await res.json();
+
+    if (!res.ok) {
+      setStatus(statusDiv, data.detail || 'Update failed.', 'error');
+      applyBtn.disabled = false;
+      return;
+    }
+
+    if (data.status === 'docker') {
+      setStatus(statusDiv, data.message, 'warning');
+      applyBtn.disabled = false;
+      return;
+    }
+
+    setStatus(statusDiv, data.message, 'success');
+    showToast('Update applied. Restarting…', 'info', 'Updating');
+    scheduleReconnectPoll();
+  } catch (e) {
+    setStatus(statusDiv, `Error: ${e.message}`, 'error');
+    applyBtn.disabled = false;
   }
 }
 
