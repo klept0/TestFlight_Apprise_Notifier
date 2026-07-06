@@ -121,6 +121,9 @@ _backoff_delay: Dict[str, float] = {}  # tf_id -> current backoff delay (seconds
 # Last time each ID was checked, for honoring per-app check-interval overrides.
 _last_check_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
 
+# Last time each ID was detected as OPEN (spots available to sign up).
+_last_open_ts: Dict[str, float] = {}  # tf_id -> epoch seconds
+
 
 def _record_failure(tf_id: str) -> float:
     """Record a failed check and schedule the next eligible retry.
@@ -172,13 +175,14 @@ def snapshot_runtime_state() -> dict:
         last_fail = dict(_last_failure_ts)
         next_check = dict(_next_check_ts)
         backoff = dict(_backoff_delay)
+        last_open = dict(_last_open_ts)
     with _open_notified_lock:
         opened = dict(_open_notified)
 
     apps = {}
     all_ids = (
         set(prev) | set(notif) | set(succ) | set(fail) | set(opened)
-        | set(last_fail) | set(next_check) | set(backoff)
+        | set(last_fail) | set(next_check) | set(backoff) | set(last_open)
     )
     for tf_id in all_ids:
         cache_key = f"{TESTFLIGHT_URL}:{tf_id}"
@@ -192,6 +196,7 @@ def snapshot_runtime_state() -> dict:
             "last_failure_ts": last_fail.get(tf_id),
             "next_check_ts": next_check.get(tf_id),
             "backoff_delay": backoff.get(tf_id, 0.0),
+            "last_open_ts": last_open.get(tf_id),
             "app_name": app_name_cache.get(cache_key),
             "icon_url": app_icon_cache.get(cache_key),
         }
@@ -225,6 +230,8 @@ def restore_runtime_state(snapshot: dict) -> None:
                 if rec.get("next_check_ts") is not None:
                     _next_check_ts[tf_id] = float(rec["next_check_ts"])
                 _backoff_delay[tf_id] = float(rec.get("backoff_delay", 0.0) or 0.0)
+                if rec.get("last_open_ts") is not None:
+                    _last_open_ts[tf_id] = float(rec["last_open_ts"])
             with _open_notified_lock:
                 _open_notified[tf_id] = bool(rec.get("notified_open", False))
 
@@ -474,6 +481,8 @@ async def fetch_testflight_status(session, tf_id):
                 should_notify = True
 
         elif result["status"] == TestFlightStatus.OPEN:
+            with _status_lock:
+                _last_open_ts[tf_id] = time.time()
             if not settings["notify_on_open"]:
                 logging.info(f"200 - {display_name} - Beta is OPEN (open notifications disabled)")
             else:

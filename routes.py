@@ -225,8 +225,14 @@ async def get_testflight_ids_details():
     current_ids = get_current_id_list()
     details = []
 
+    # Read persisted runtime state once for all IDs.
+    state_data = persistence.read_json(persistence.STATE_FILE, default={})
+    state_apps = state_data.get("apps", {}) if isinstance(state_data, dict) else {}
+
     for tf_id in current_ids:
         settings = app_config.get(tf_id)
+        app_state = state_apps.get(tf_id) or {}
+        last_open_ts = app_state.get("last_open_ts")
         try:
             # Get app name (with caching)
             app_name = await get_app_name(TESTFLIGHT_URL, tf_id)
@@ -243,6 +249,7 @@ async def get_testflight_ids_details():
                     "display_name": display_name,
                     "icon_url": icon_url,
                     "settings": settings,
+                    "last_open_ts": last_open_ts,
                 }
             )
         except Exception as e:
@@ -255,6 +262,7 @@ async def get_testflight_ids_details():
                     "display_name": settings["friendly_name"] or tf_id,
                     "icon_url": None,
                     "settings": settings,
+                    "last_open_ts": last_open_ts,
                 }
             )
 

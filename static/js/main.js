@@ -270,11 +270,15 @@ function renderIds(ids) {
       : `<div class="item-icon-placeholder">📱</div>`;
     const pid = `app-settings-${item.id}`;
     const chk = (f, def) => ((s[f] !== undefined ? s[f] : def) ? 'checked' : '');
+    const lastOpenStr = item.last_open_ts
+      ? `Last open: ${new Date(item.last_open_ts * 1000).toLocaleString()}`
+      : 'Last open: never detected';
     return `<div class="item-row"${disabled ? ' style="opacity:.55"' : ''}>
       ${icon}
       <div class="item-info">
         <div class="item-name">${escHtml(name)}${disabled ? ' <span class="text-muted text-sm">(disabled)</span>' : ''}</div>
         ${hasSub ? `<div class="item-sub">${escHtml(item.id)}</div>` : ''}
+        <div class="item-sub text-muted" style="font-size:.75rem; margin-top:2px;">${escHtml(lastOpenStr)}</div>
       </div>
       <div class="item-actions">
         <button class="btn btn-sm btn-secondary" onclick="toggleAppSettings('${escAttr(item.id)}')">Settings</button>

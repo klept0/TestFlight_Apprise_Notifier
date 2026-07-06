@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Version
-__version__ = "2.0.3"
+__version__ = "2.0.4"
 
 # GitHub repository configuration (override via environment variables)
 GITHUB_REPO = os.getenv("GITHUB_REPO", "klept0/TestFlight_Apprise_Notifier")
